@@ -1,6 +1,6 @@
 -----------------[[ types.lua ]]-----------------
 
------------------[[ DCS Type Definitions ]]-----------------
+-- DCS Type Definitions
 
 ---@class Unit DCS Unit object
 ---@field getByName fun(name: string): Unit|nil
