@@ -71,8 +71,13 @@ WE.Version = "0.0.1"
 -----------------[[ config.lua ]]-----------------
 
 ------------------- To add debugging messages to dcs.log, change the following log levels to `true`; `Debug` is less detailed than `Trace`
-WE.Debug = false
-WE.Trace = false
+WE.Debug = true
+WE.Trace = true
+WE.RadioUsers = {
+    [1] = "Player",
+    [2] = "[Patreon]",
+    -- [3] = "All"
+}
 
 -----------------[[ END OF config.lua ]]-----------------
 -----------------[[ state.lua ]]-----------------
@@ -89,11 +94,11 @@ WE.is_active = 0;
 --- @param o any object to print
 --- @param level? number depth level for recursion
 --- @return string formatted string representation of the object
-function ME.p(o, level)
+function WE.p(o, level)
     local MAX_LEVEL = 20
     if level == nil then level = 0 end
     if level > MAX_LEVEL then
-        ME.logError("max depth reached in ME.p : " .. tostring(MAX_LEVEL))
+        WE.logError("max depth reached in WE.p : " .. tostring(MAX_LEVEL))
         return ""
     end
     local text = ""
@@ -103,7 +108,7 @@ function ME.p(o, level)
             for i = 0, level do
                 text = text .. " "
             end
-            text = text .. "." .. key .. "=" .. ME.p(value, level + 1) .. "\n"
+            text = text .. "." .. key .. "=" .. WE.p(value, level + 1) .. "\n"
         end
     elseif (type(o) == "function") then
         text = "[function]"
@@ -127,18 +132,18 @@ end
 --- @param text string text to format
 --- @param ... any arguments to format into the text
 --- @return string formatted text
-function ME.formatText(text, ...)
+function WE.formatText(text, ...)
     if not text then
         return ""
     end
     if type(text) ~= 'string' then
-        text = ME.p(text)
+        text = WE.p(text)
     else
         local args = ...
         if args and args.n and args.n > 0 then
             local pArgs = {}
             for i = 1, args.n do
-                pArgs[i] = ME.p(args[i])
+                pArgs[i] = WE.p(args[i])
             end
             text = text:format(unpack(pArgs))
         end
@@ -162,65 +167,65 @@ end
 --- log an error
 --- @param message any message to log
 --- @param ... any arguments to format into the message
-function ME.logError(message, ...)
-    message = ME.formatText(message, arg)
-    env.info(" E - " .. ME.Id .. message)
+function WE.logError(message, ...)
+    message = WE.formatText(message, arg)
+    env.info(" E - " .. WE.Id .. message)
 end
 
 --- log a warning
 --- @param message any message to log
 --- @param ... any arguments to format into the message
-function ME.logWarning(message, ...)
-    message = ME.formatText(message, arg)
-    env.info(" W - " .. ME.Id .. message)
+function WE.logWarning(message, ...)
+    message = WE.formatText(message, arg)
+    env.info(" W - " .. WE.Id .. message)
 end
 
 --- log an info
 --- @param message any message to log
 --- @param ... any arguments to format into the message
-function ME.logInfo(message, ...)
-    message = ME.formatText(message, arg)
-    env.info(" I - " .. ME.Id .. message)
+function WE.logInfo(message, ...)
+    message = WE.formatText(message, arg)
+    env.info(" I - " .. WE.Id .. message)
 end
 
 --- log an debug mesage
 --- @param message any message to log
 --- @param ... any arguments to format into the message
-function ME.logDebug(message, ...)
-    if message and ME.Debug then
-        message = ME.formatText(message, arg)
-        env.info(" D - " .. ME.Id .. message)
+function WE.logDebug(message, ...)
+    if message and WE.Debug then
+        message = WE.formatText(message, arg)
+        env.info(" D - " .. WE.Id .. message)
     end
 end
 
 --- log a trace mesage
 --- @param message any message to log
 --- @param ... any arguments to format into the message
-function ME.logTrace(message, ...)
-    if message and ME.Trace then
-        message = ME.formatText(message, arg)
-        env.info(" T - " .. ME.Id .. message)
+function WE.logTrace(message, ...)
+    if message and WE.Trace then
+        message = WE.formatText(message, arg)
+        env.info(" T - " .. WE.Id .. message)
     end
 end
 
 --- Next Unit ID generator
 --- @return number next unit ID from state
-ME.getNextUnitId = function()
-    ME.nextUnitId = ME.nextUnitId + 1
-    return ME.nextUnitId
+WE.getNextUnitId = function()
+    WE.nextUnitId = WE.nextUnitId + 1
+    return WE.nextUnitId
 end
 
 --- Next Group ID generator
 --- @return number next group ID from state
-ME.getNextGroupId = function()
-    ME.nextGroupId = ME.nextGroupId + 1
-    return ME.nextGroupId
+WE.getNextGroupId = function()
+    WE.nextGroupId = WE.nextGroupId + 1
+    return WE.nextGroupId
 end
 
 --- Get transport unit by name if active and alive
 --- @param _unitName string name of the transport unit
 --- @return Unit|nil transport unit object if active and alive, otherwise nil
-function ME.getTransportUnit(_unitName)
+function WE.getTransportUnit(_unitName)
     if _unitName == nil then
         return nil
     end
@@ -238,15 +243,15 @@ end
 --- Get point at 12 o'clock from unit
 --- @param _unit Unit transport unit
 --- @param _offset number|nil offset distance in meters
-function ME.getPointAt12Oclock(_unit, _offset)
-    return ME.getPointAtDirection(_unit, _offset, 0)
+function WE.getPointAt12Oclock(_unit, _offset)
+    return WE.getPointAtDirection(_unit, _offset, 0)
 end
 
 --- Get point at 6 o'clock from unit
 --- @param _unit Unit transport unit
 --- @param _offset number|nil offset distance in meters
-function ME.getPointAt6Oclock(_unit, _offset)
-    return ME.getPointAtDirection(_unit, _offset, math.pi)
+function WE.getPointAt6Oclock(_unit, _offset)
+    return WE.getPointAtDirection(_unit, _offset, math.pi)
 end
 
 --- Get point at direction from unit
@@ -254,15 +259,15 @@ end
 --- @param _offset number|nil offset distance in meters
 --- @param _directionInRadian number direction in radians
 --- @return table point table with x, y, z coordinates
-function ME.getPointAtDirection(_unit, _offset, _directionInRadian)
+function WE.getPointAtDirection(_unit, _offset, _directionInRadian)
     if _offset == nil then
-        _offset = ME.getSecureDistanceFromUnit(_unit:getName())
+        _offset = WE.getSecureDistanceFromUnit(_unit:getName())
     end
-    --ME.logTrace("_offset = %s", ME.p(_offset))
-    local _randomOffsetX = math.random(0, ME.randomCrateSpacing * 2) - ME.randomCrateSpacing
-    local _randomOffsetZ = math.random(0, ME.randomCrateSpacing)
-    --ME.logTrace("_randomOffsetX = %s", ME.p(_randomOffsetX))
-    --ME.logTrace("_randomOffsetZ = %s", ME.p(_randomOffsetZ))
+    --WE.logTrace("_offset = %s", WE.p(_offset))
+    local _randomOffsetX = math.random(0, WE.randomCrateSpacing * 2) - WE.randomCrateSpacing
+    local _randomOffsetZ = math.random(0, WE.randomCrateSpacing)
+    --WE.logTrace("_randomOffsetX = %s", WE.p(_randomOffsetX))
+    --WE.logTrace("_randomOffsetZ = %s", WE.p(_randomOffsetZ))
     local _position = _unit:getPosition()
     local _angle    = math.atan2(_position.x.z, _position.x.x) + _directionInRadian
     local _xOffset  = math.cos(_angle) * (_offset + _randomOffsetX)
@@ -276,7 +281,7 @@ end
 --- @param _distance number distance from reference point
 --- @param _angle_radians number angle in radians from reference point
 --- @return table relative point with x, y, z coordinates
-function ME.getRelativePoint(_refPointXZTable, _distance, _angle_radians)  
+function WE.getRelativePoint(_refPointXZTable, _distance, _angle_radians)  
     local relativePoint = {}
     relativePoint.x = _refPointXZTable.x + _distance * math.cos(_angle_radians)
     if _refPointXZTable.z == nil then
@@ -291,9 +296,9 @@ end
 --- @param _heli Unit transport unit
 --- @param _troops boolean true to check for troops, false to check for vehicles
 --- @return boolean true if troops/vehicles are onboard, false otherwise
-function ME.troopsOnboard(_heli, _troops)
-    if ME.inTransitTroops[_heli:getName()] ~= nil then
-        local _onboard = ME.inTransitTroops[_heli:getName()]
+function WE.troopsOnboard(_heli, _troops)
+    if WE.inTransitTroops[_heli:getName()] ~= nil then
+        local _onboard = WE.inTransitTroops[_heli:getName()]
 
         if _troops then
             if _onboard.troops ~= nil and _onboard.troops.units ~= nil and #_onboard.troops.units > 0 then
@@ -316,7 +321,7 @@ end
 --- Get player name or type if dropped by AI (no player name)
 --- @param _heli Unit transport unit
 --- @return string|nil player name or unit type
-function ME.getPlayerNameOrType(_heli)
+function WE.getPlayerNameOrType(_heli)
     if _heli:getPlayerName() == nil then
         return _heli:getTypeName()
     else
@@ -327,12 +332,12 @@ end
 --- Check if helicopter is in an extract zone
 --- @param _heli Unit transport unit
 --- @return table|boolean extract zone details table if in extract zone, false otherwise
-function ME.inExtractZone(_heli)
+function WE.inExtractZone(_heli)
     local _heliPoint = _heli:getPoint()
 
-    for _, _zoneDetails in pairs(ME.extractZones) do
+    for _, _zoneDetails in pairs(WE.extractZones) do
         --get distance to center
-        local _dist = ME.getDistance(_heliPoint, _zoneDetails.point)
+        local _dist = WE.getDistance(_heliPoint, _zoneDetails.point)
 
         if _dist <= _zoneDetails.radius then
             return _zoneDetails
@@ -351,9 +356,9 @@ end
 --- @param _troopArray table troop array to insert into
 --- @param _troopName string|nil troop name to use instead of type
 --- @return table updated troop array
-function ME.insertIntoTroopsArray(_troopType, _count, _troopArray, _troopName)
+function WE.insertIntoTroopsArray(_troopType, _count, _troopArray, _troopName)
     for _i = 1, _count do
-        local _unitId = ME.getNextUnitId()
+        local _unitId = WE.getNextUnitId()
         table.insert(_troopArray,
             { type = _troopType, unitId = _unitId, name = string.format("Dropped %s #%i", _troopName or _troopType,
                 _unitId) })
@@ -367,7 +372,7 @@ end
 --- @param _countOrTemplate number|table number of troops or template table
 --- @param _country number country ID
 --- @return table troop details table
-function ME.generateTroopTypes(_side, _countOrTemplate, _country)
+function WE.generateTroopTypes(_side, _countOrTemplate, _country)
     local _troops = {}
     local _weight = 0
     local _hasJTAC = false
@@ -375,8 +380,8 @@ function ME.generateTroopTypes(_side, _countOrTemplate, _country)
     local function getSoldiersWeight(count, additionalWeight)
         local _weight = 0
         for i = 1, count do
-            local _soldierWeight = math.random(90, 120) * ME.SOLDIER_WEIGHT / 100
-            _weight = _weight + _soldierWeight + ME.KIT_WEIGHT + additionalWeight
+            local _soldierWeight = math.random(90, 120) * WE.SOLDIER_WEIGHT / 100
+            _weight = _weight + _soldierWeight + WE.KIT_WEIGHT + additionalWeight
         end
         return _weight
     end
@@ -384,49 +389,49 @@ function ME.generateTroopTypes(_side, _countOrTemplate, _country)
     if type(_countOrTemplate) == "table" then
         if _countOrTemplate.aa then
             if _side == 2 then
-                _troops = ME.insertIntoTroopsArray("Soldier stinger", _countOrTemplate.aa, _troops)
+                _troops = WE.insertIntoTroopsArray("Soldier stinger", _countOrTemplate.aa, _troops)
             else
-                _troops = ME.insertIntoTroopsArray("SA-18 Igla manpad", _countOrTemplate.aa, _troops)
+                _troops = WE.insertIntoTroopsArray("SA-18 Igla manpad", _countOrTemplate.aa, _troops)
             end
-            _weight = _weight + getSoldiersWeight(_countOrTemplate.aa, ME.MANPAD_WEIGHT)
+            _weight = _weight + getSoldiersWeight(_countOrTemplate.aa, WE.MANPAD_WEIGHT)
         end
 
         if _countOrTemplate.inf then
             if _side == 2 then
-                _troops = ME.insertIntoTroopsArray("Soldier M4 GRG", _countOrTemplate.inf, _troops)
+                _troops = WE.insertIntoTroopsArray("Soldier M4 GRG", _countOrTemplate.inf, _troops)
             else
-                _troops = ME.insertIntoTroopsArray("Infantry AK", _countOrTemplate.inf, _troops)
+                _troops = WE.insertIntoTroopsArray("Infantry AK", _countOrTemplate.inf, _troops)
             end
-            _weight = _weight + getSoldiersWeight(_countOrTemplate.inf, ME.RIFLE_WEIGHT)
+            _weight = _weight + getSoldiersWeight(_countOrTemplate.inf, WE.RIFLE_WEIGHT)
         end
 
         if _countOrTemplate.mg then
             if _side == 2 then
-                _troops = ME.insertIntoTroopsArray("Soldier M249", _countOrTemplate.mg, _troops)
+                _troops = WE.insertIntoTroopsArray("Soldier M249", _countOrTemplate.mg, _troops)
             else
-                _troops = ME.insertIntoTroopsArray("Paratrooper AKS-74", _countOrTemplate.mg, _troops)
+                _troops = WE.insertIntoTroopsArray("Paratrooper AKS-74", _countOrTemplate.mg, _troops)
             end
-            _weight = _weight + getSoldiersWeight(_countOrTemplate.mg, ME.MG_WEIGHT)
+            _weight = _weight + getSoldiersWeight(_countOrTemplate.mg, WE.MG_WEIGHT)
         end
 
         if _countOrTemplate.at then
-            _troops = ME.insertIntoTroopsArray("Paratrooper RPG-16", _countOrTemplate.at, _troops)
-            _weight = _weight + getSoldiersWeight(_countOrTemplate.at, ME.RPG_WEIGHT)
+            _troops = WE.insertIntoTroopsArray("Paratrooper RPG-16", _countOrTemplate.at, _troops)
+            _weight = _weight + getSoldiersWeight(_countOrTemplate.at, WE.RPG_WEIGHT)
         end
 
         if _countOrTemplate.mortar then
-            _troops = ME.insertIntoTroopsArray("2B11 mortar", _countOrTemplate.mortar, _troops)
-            _weight = _weight + getSoldiersWeight(_countOrTemplate.mortar, ME.MORTAR_WEIGHT)
+            _troops = WE.insertIntoTroopsArray("2B11 mortar", _countOrTemplate.mortar, _troops)
+            _weight = _weight + getSoldiersWeight(_countOrTemplate.mortar, WE.MORTAR_WEIGHT)
         end
 
         if _countOrTemplate.jtac then
             if _side == 2 then
-                _troops = ME.insertIntoTroopsArray("Soldier M4 GRG", _countOrTemplate.jtac, _troops, "JTAC")
+                _troops = WE.insertIntoTroopsArray("Soldier M4 GRG", _countOrTemplate.jtac, _troops, "JTAC")
             else
-                _troops = ME.insertIntoTroopsArray("Infantry AK", _countOrTemplate.jtac, _troops, "JTAC")
+                _troops = WE.insertIntoTroopsArray("Infantry AK", _countOrTemplate.jtac, _troops, "JTAC")
             end
             _hasJTAC = true
-            _weight = _weight + getSoldiersWeight(_countOrTemplate.jtac, ME.JTAC_WEIGHT + ME.RIFLE_WEIGHT)
+            _weight = _weight + getSoldiersWeight(_countOrTemplate.jtac, WE.JTAC_WEIGHT + WE.RIFLE_WEIGHT)
         end
     else
         for _i = 1, _countOrTemplate do
@@ -435,40 +440,40 @@ function ME.generateTroopTypes(_side, _countOrTemplate, _country)
             if _side == 2 then
                 if _i <= 2 then
                     _unitType = "Soldier M249"
-                    _weight = _weight + getSoldiersWeight(1, ME.MG_WEIGHT)
-                elseif ME.spawnRPGWithCoalition and _i > 2 and _i <= 4 then
+                    _weight = _weight + getSoldiersWeight(1, WE.MG_WEIGHT)
+                elseif WE.spawnRPGWithCoalition and _i > 2 and _i <= 4 then
                     _unitType = "Paratrooper RPG-16"
-                    _weight = _weight + getSoldiersWeight(1, ME.RPG_WEIGHT)
-                elseif ME.spawnStinger and _i > 4 and _i <= 5 then
+                    _weight = _weight + getSoldiersWeight(1, WE.RPG_WEIGHT)
+                elseif WE.spawnStinger and _i > 4 and _i <= 5 then
                     _unitType = "Soldier stinger"
-                    _weight = _weight + getSoldiersWeight(1, ME.MANPAD_WEIGHT)
+                    _weight = _weight + getSoldiersWeight(1, WE.MANPAD_WEIGHT)
                 else
                     _unitType = "Soldier M4 GRG"
-                    _weight = _weight + getSoldiersWeight(1, ME.RIFLE_WEIGHT)
+                    _weight = _weight + getSoldiersWeight(1, WE.RIFLE_WEIGHT)
                 end
             else
                 if _i <= 2 then
                     _unitType = "Paratrooper AKS-74"
-                    _weight = _weight + getSoldiersWeight(1, ME.MG_WEIGHT)
-                elseif ME.spawnRPGWithCoalition and _i > 2 and _i <= 4 then
+                    _weight = _weight + getSoldiersWeight(1, WE.MG_WEIGHT)
+                elseif WE.spawnRPGWithCoalition and _i > 2 and _i <= 4 then
                     _unitType = "Paratrooper RPG-16"
-                    _weight = _weight + getSoldiersWeight(1, ME.RPG_WEIGHT)
-                elseif ME.spawnStinger and _i > 4 and _i <= 5 then
+                    _weight = _weight + getSoldiersWeight(1, WE.RPG_WEIGHT)
+                elseif WE.spawnStinger and _i > 4 and _i <= 5 then
                     _unitType = "SA-18 Igla manpad"
-                    _weight = _weight + getSoldiersWeight(1, ME.MANPAD_WEIGHT)
+                    _weight = _weight + getSoldiersWeight(1, WE.MANPAD_WEIGHT)
                 else
                     _unitType = "Infantry AK"
-                    _weight = _weight + getSoldiersWeight(1, ME.RIFLE_WEIGHT)
+                    _weight = _weight + getSoldiersWeight(1, WE.RIFLE_WEIGHT)
                 end
             end
 
-            local _unitId = ME.getNextUnitId()
+            local _unitId = WE.getNextUnitId()
 
             _troops[_i] = { type = _unitType, unitId = _unitId, name = string.format("Dropped %s #%i", _unitType, _unitId) }
         end
     end
 
-    local _groupId = ME.getNextGroupId()
+    local _groupId = WE.getNextGroupId()
     local _groupName = "Dropped Group"
     if _hasJTAC then
         _groupName = "Dropped JTAC Group"
@@ -482,27 +487,27 @@ end
 --- Special F10 function for players for troops
 --- @param _args table arguments table
 --- @return boolean true if troops extracted or unloaded, false otherwise
-function ME.unloadExtractTroops(_args)
-    local _heli = ME.getTransportUnit(_args[1])
+function WE.unloadExtractTroops(_args)
+    local _heli = WE.getTransportUnit(_args[1])
 
     if _heli == nil then
         return false
     end
 
     local _extract = nil
-    if not ME.inAir(_heli) then
+    if not WE.inAir(_heli) then
         if _heli:getCoalition() == 1 then
-            _extract = ME.findNearestGroup(_heli, ME.droppedTroopsRED)
+            _extract = WE.findNearestGroup(_heli, WE.droppedTroopsRED)
         else
-            _extract = ME.findNearestGroup(_heli, ME.droppedTroopsBLUE)
+            _extract = WE.findNearestGroup(_heli, WE.droppedTroopsBLUE)
         end
     end
 
-    if _extract ~= nil and not ME.troopsOnboard(_heli, true) then
+    if _extract ~= nil and not WE.troopsOnboard(_heli, true) then
         -- search for nearest troops to pickup
-        return ME.extractTroops({ _heli:getName(), true })
+        return WE.extractTroops({ _heli:getName(), true })
     else
-        return ME.unloadTroops({ _heli:getName(), true, true })
+        return WE.unloadTroops({ _heli:getName(), true, true })
     end
 end
 
@@ -510,15 +515,15 @@ end
 --- @param _heli Unit transport unit
 --- @param _troops boolean true to load troops, false to load vehicles
 --- @param _numberOrTemplate number|table number of troops or template table
-function ME.loadTroops(_heli, _troops, _numberOrTemplate)
+function WE.loadTroops(_heli, _troops, _numberOrTemplate)
     -- load troops + vehicles if c130 or herc
     -- "M1045 HMMWV TOW"
     -- "M1043 HMMWV Armament"
-    local _onboard = ME.inTransitTroops[_heli:getName()]
+    local _onboard = WE.inTransitTroops[_heli:getName()]
 
     --number doesnt apply to vehicles
     if _numberOrTemplate == nil or (type(_numberOrTemplate) ~= "table" and type(_numberOrTemplate) ~= "number") then
-        _numberOrTemplate = ME.getTransportLimit(_heli:getTypeName())
+        _numberOrTemplate = WE.getTransportLimit(_heli:getTypeName())
     end
 
     if _onboard == nil then
@@ -527,56 +532,56 @@ function ME.loadTroops(_heli, _troops, _numberOrTemplate)
 
     local _list
     if _heli:getCoalition() == 1 then
-        _list = ME.vehiclesForTransportRED
+        _list = WE.vehiclesForTransportRED
     else
-        _list = ME.vehiclesForTransportBLUE
+        _list = WE.vehiclesForTransportBLUE
     end
 
     if _troops then
-        _onboard.troops = ME.generateTroopTypes(_heli:getCoalition(), _numberOrTemplate, _heli:getCountry())
+        _onboard.troops = WE.generateTroopTypes(_heli:getCoalition(), _numberOrTemplate, _heli:getCountry())
         trigger.action.outTextForCoalition(_heli:getCoalition(),
-            ME.i18n_translate("%1 loaded troops into %2", ME.getPlayerNameOrType(_heli), _heli:getTypeName()), 10)
+            WE.i18n_translate("%1 loaded troops into %2", WE.getPlayerNameOrType(_heli), _heli:getTypeName()), 10)
 
-        ME.processCallback({ unit = _heli, onboard = _onboard.troops, action = "load_troops" })
+        WE.processCallback({ unit = _heli, onboard = _onboard.troops, action = "load_troops" })
     else
-        _onboard.vehicles = ME.generateVehiclesForTransport(_heli:getCoalition(), _heli:getCountry())
+        _onboard.vehicles = WE.generateVehiclesForTransport(_heli:getCoalition(), _heli:getCountry())
 
         local _count = #_list
 
-        ME.processCallback({ unit = _heli, onboard = _onboard.vehicles, action = "load_vehicles" })
+        WE.processCallback({ unit = _heli, onboard = _onboard.vehicles, action = "load_vehicles" })
 
         trigger.action.outTextForCoalition(_heli:getCoalition(),
-            ME.i18n_translate("%1 loaded %2 vehicles into %3", ME.getPlayerNameOrType(_heli), _count,
+            WE.i18n_translate("%1 loaded %2 vehicles into %3", WE.getPlayerNameOrType(_heli), _count,
                 _heli:getTypeName()), 10)
     end
 
-    ME.inTransitTroops[_heli:getName()] = _onboard
-    ME.adaptWeightToCargo(_heli:getName())
+    WE.inTransitTroops[_heli:getName()] = _onboard
+    WE.adaptWeightToCargo(_heli:getName())
 end
 
 --- Generate vehicle types for transport
 --- @param _side number coalition side
 --- @param _country number country ID
 --- @return table vehicle details table
-function ME.generateVehiclesForTransport(_side, _country)
+function WE.generateVehiclesForTransport(_side, _country)
     local _vehicles = {}
     local _list
     if _side == 1 then
-        _list = ME.vehiclesForTransportRED
+        _list = WE.vehiclesForTransportRED
     else
-        _list = ME.vehiclesForTransportBLUE
+        _list = WE.vehiclesForTransportBLUE
     end
 
 
     for _i, _type in ipairs(_list) do
-        local _unitId = ME.getNextUnitId()
-        local _weight = ME.vehiclesWeight[_type] or 2500
+        local _unitId = WE.getNextUnitId()
+        local _weight = WE.vehiclesWeight[_type] or 2500
         _vehicles[_i] = { type = _type, unitId = _unitId, name = string.format("Dropped %s #%i", _type, _unitId), weight =
         _weight }
     end
 
 
-    local _groupId = ME.getNextGroupId()
+    local _groupId = WE.getNextGroupId()
     local _details = { units = _vehicles, groupId = _groupId, groupName = string.format("Dropped Group %i", _groupId), side =
     _side, country = _country }
 
@@ -585,26 +590,26 @@ end
 
 --- Load or unload FOB crate from helicopter
 --- @param _args table arguments table
-function ME.loadUnloadFOBCrate(_args)
-    local _heli = ME.getTransportUnit(_args[1])
+function WE.loadUnloadFOBCrate(_args)
+    local _heli = WE.getTransportUnit(_args[1])
     local _troops = _args[2]
 
     if _heli == nil then
         return
     end
 
-    if ME.inAir(_heli) == true then
+    if WE.inAir(_heli) == true then
         return
     end
 
 
     local _side = _heli:getCoalition()
 
-    local _inZone = ME.inLogisticsZone(_heli)
-    local _crateOnboard = ME.inTransitFOBCrates[_heli:getName()] ~= nil
+    local _inZone = WE.inLogisticsZone(_heli)
+    local _crateOnboard = WE.inTransitFOBCrates[_heli:getName()] ~= nil
 
     if _inZone == false and _crateOnboard == true then
-        ME.inTransitFOBCrates[_heli:getName()] = nil
+        WE.inTransitFOBCrates[_heli:getName()] = nil
 
         local _position = _heli:getPosition()
         local _point = _heli:getPoint()
@@ -616,7 +621,7 @@ function ME.loadUnloadFOBCrate(_args)
         
         for _row = -1, 1 do
             for _col = -1, 1 do
-                local _unitId = ME.getNextUnitId()
+                local _unitId = WE.getNextUnitId()
                 local _name = string.format("FOB Crate #%i", _unitId)
                 
                 -- Calculate offset from helicopter position
@@ -628,13 +633,13 @@ function ME.loadUnloadFOBCrate(_args)
                 local _baseXOffset = math.cos(_angle) * -60
                 local _baseYOffset = math.sin(_angle) * -60
                 
-                local _spawnedCrate = ME.spawnFOBCrateStatic(_heli:getCountry(), _unitId,
+                local _spawnedCrate = WE.spawnFOBCrateStatic(_heli:getCountry(), _unitId,
                     { x = _point.x + _baseXOffset + _xOffset, z = _point.z + _baseYOffset + _yOffset }, _name)
 
                 if _side == 1 then
-                    ME.droppedFOBCratesRED[_name] = _name
+                    WE.droppedFOBCratesRED[_name] = _name
                 else
-                    ME.droppedFOBCratesBLUE[_name] = _name
+                    WE.droppedFOBCratesBLUE[_name] = _name
                 end
                 
                 _cratesSpawned = _cratesSpawned + 1
@@ -642,43 +647,43 @@ function ME.loadUnloadFOBCrate(_args)
         end
 
         trigger.action.outTextForCoalition(_heli:getCoalition(),
-            ME.i18n_translate("%1 delivered %2 FOB Crates", ME.getPlayerNameOrType(_heli), _cratesSpawned), 10)
+            WE.i18n_translate("%1 delivered %2 FOB Crates", WE.getPlayerNameOrType(_heli), _cratesSpawned), 10)
 
-        ME.displayMessageToGroup(_heli, string.format("Delivered %d FOB Crates in a grid pattern behind you", _cratesSpawned), 10)
+        WE.displayMessageToGroup(_heli, string.format("Delivered %d FOB Crates in a grid pattern behind you", _cratesSpawned), 10)
     elseif _inZone == true and _crateOnboard == true then
-        ME.displayMessageToGroup(_heli, ME.i18n_translate("FOB Crate dropped back to base"), 10)
+        WE.displayMessageToGroup(_heli, WE.i18n_translate("FOB Crate dropped back to base"), 10)
 
-        ME.inTransitFOBCrates[_heli:getName()] = nil
+        WE.inTransitFOBCrates[_heli:getName()] = nil
     elseif _inZone == true and _crateOnboard == false then
-        ME.displayMessageToGroup(_heli, ME.i18n_translate("FOB Crate Loaded"), 10)
+        WE.displayMessageToGroup(_heli, WE.i18n_translate("FOB Crate Loaded"), 10)
 
-        ME.inTransitFOBCrates[_heli:getName()] = true
+        WE.inTransitFOBCrates[_heli:getName()] = true
 
         trigger.action.outTextForCoalition(_heli:getCoalition(),
-            ME.i18n_translate("%1 loaded a FOB Crate ready for delivery!", ME.getPlayerNameOrType(_heli)), 10)
+            WE.i18n_translate("%1 loaded a FOB Crate ready for delivery!", WE.getPlayerNameOrType(_heli)), 10)
     else
         -- nearest Crate
-        local _crates = ME.getCratesAndDistance(_heli)
-        local _nearestCrate = ME.getClosestCrate(_heli, _crates, "FOB")
+        local _crates = WE.getCratesAndDistance(_heli)
+        local _nearestCrate = WE.getClosestCrate(_heli, _crates, "FOB")
 
         if _nearestCrate ~= nil and _nearestCrate.dist < 150 then
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("FOB Crate Loaded"), 10)
-            ME.inTransitFOBCrates[_heli:getName()] = true
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("FOB Crate Loaded"), 10)
+            WE.inTransitFOBCrates[_heli:getName()] = true
 
             trigger.action.outTextForCoalition(_heli:getCoalition(),
-                ME.i18n_translate("%1 loaded a FOB Crate ready for delivery!", ME.getPlayerNameOrType(_heli)), 10)
+                WE.i18n_translate("%1 loaded a FOB Crate ready for delivery!", WE.getPlayerNameOrType(_heli)), 10)
 
             if _side == 1 then
-                ME.droppedFOBCratesRED[_nearestCrate.crateUnit:getName()] = nil
+                WE.droppedFOBCratesRED[_nearestCrate.crateUnit:getName()] = nil
             else
-                ME.droppedFOBCratesBLUE[_nearestCrate.crateUnit:getName()] = nil
+                WE.droppedFOBCratesBLUE[_nearestCrate.crateUnit:getName()] = nil
             end
 
             --remove
             _nearestCrate.crateUnit:destroy()
         else
-            ME.displayMessageToGroup(_heli,
-                ME.i18n_translate("There are no friendly logistic units nearby to load a FOB crate from!"), 10)
+            WE.displayMessageToGroup(_heli,
+                WE.i18n_translate("There are no friendly logistic units nearby to load a FOB crate from!"), 10)
         end
     end
 end
@@ -687,14 +692,14 @@ end
 --- @param params table scheduler params
 --- @param t number current time
 --- @return number reschedule time in seconds
-function ME.updateTroopsInGame(params, t)
+function WE.updateTroopsInGame(params, t)
  	if t == nil then t = timer.getTime() + 1; end
-    ME.InfantryInGameCount  = {0, 0}
+    WE.InfantryInGameCount  = {0, 0}
     for coalitionId=1, 2 do				-- for each CoaId
         for k,v in ipairs(coalition.getGroups(coalitionId, Group.Category.GROUND)) do   -- for each GROUND type group
 			for index, unitObj in pairs(v:getUnits()) do		-- for each unit in group
                 if unitObj:getDesc().attributes.Infantry then
-                    ME.InfantryInGameCount[coalitionId] = ME.InfantryInGameCount[coalitionId] + 1
+                    WE.InfantryInGameCount[coalitionId] = WE.InfantryInGameCount[coalitionId] + 1
                 end
             end
         end
@@ -705,8 +710,8 @@ end
 --- Load troops onto helicopter from zone or extract nearby troops
 --- @param _args table arguments table
 --- @return boolean true if troops loaded, false otherwise
-function ME.loadTroopsFromZone(_args)
-    local _heli = ME.getTransportUnit(_args[1])
+function WE.loadTroopsFromZone(_args)
+    local _heli = WE.getTransportUnit(_args[1])
     local _troops = _args[2]
     local _groupTemplate = _args[3] or nil
     local _allowExtract = _args[4]
@@ -715,13 +720,13 @@ function ME.loadTroopsFromZone(_args)
         return false
     end
 
-    local _zone = ME.inPickupZone(_heli)
+    local _zone = WE.inPickupZone(_heli)
 
-    if ME.troopsOnboard(_heli, _troops) then
+    if WE.troopsOnboard(_heli, _troops) then
         if _troops then
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("You already have troops onboard."), 10)
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("You already have troops onboard."), 10)
         else
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("You already have vehicles onboard."), 10)
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("You already have vehicles onboard."), 10)
         end
         return false
     end
@@ -732,29 +737,29 @@ function ME.loadTroopsFromZone(_args)
         -- first check for extractable troops regardless of if we're in a zone or not
         if _troops then
             if _heli:getCoalition() == 1 then
-                _extract = ME.findNearestGroup(_heli, ME.droppedTroopsRED)
+                _extract = WE.findNearestGroup(_heli, WE.droppedTroopsRED)
             else
-                _extract = ME.findNearestGroup(_heli, ME.droppedTroopsBLUE)
+                _extract = WE.findNearestGroup(_heli, WE.droppedTroopsBLUE)
             end
         else
 
             if _heli:getCoalition() == 1 then
-                _extract = ME.findNearestGroup(_heli, ME.droppedVehiclesRED)
+                _extract = WE.findNearestGroup(_heli, WE.droppedVehiclesRED)
             else
-                _extract = ME.findNearestGroup(_heli, ME.droppedVehiclesBLUE)
+                _extract = WE.findNearestGroup(_heli, WE.droppedVehiclesBLUE)
             end
         end
     end
 
     if _extract ~= nil then
         -- search for nearest troops to pickup
-        return ME.extractTroops({_heli:getName(), _troops})
+        return WE.extractTroops({_heli:getName(), _troops})
     elseif _zone.inZone == true then
 
         local heloCoa = _heli:getCoalition()
-        ME.logTrace("FG_ heloCoa =  %s", ME.p(heloCoa))
-        ME.logTrace("FG_ (ME.nbLimitSpawnedTroops[1]~=0 or ME.nbLimitSpawnedTroops[2]~=0) =  %s", ME.p(ME.nbLimitSpawnedTroops[1]~=0 or ME.nbLimitSpawnedTroops[2]~=0))
-        ME.logTrace("FG_ ME.InfantryInGameCount[heloCoa] =  %s", ME.p(ME.InfantryInGameCount[heloCoa]))
+        WE.logTrace("FG_ heloCoa =  %s", WE.p(heloCoa))
+        WE.logTrace("FG_ (WE.nbLimitSpawnedTroops[1]~=0 or WE.nbLimitSpawnedTroops[2]~=0) =  %s", WE.p(WE.nbLimitSpawnedTroops[1]~=0 or WE.nbLimitSpawnedTroops[2]~=0))
+        WE.logTrace("FG_ WE.InfantryInGameCount[heloCoa] =  %s", WE.p(WE.InfantryInGameCount[heloCoa]))
         
         local groupTotal = 0
         if _groupTemplate then
@@ -765,29 +770,29 @@ function ME.loadTroopsFromZone(_args)
             end
         end
 
-        ME.logTrace("FG_ _groupTemplate.total =  %s", ME.p(groupTotal))
-        ME.logTrace("FG_ ME.nbLimitSpawnedTroops[%s].total =  %s", ME.p(heloCoa), ME.p(ME.nbLimitSpawnedTroops[heloCoa]))
+        WE.logTrace("FG_ _groupTemplate.total =  %s", WE.p(groupTotal))
+        WE.logTrace("FG_ WE.nbLimitSpawnedTroops[%s].total =  %s", WE.p(heloCoa), WE.p(WE.nbLimitSpawnedTroops[heloCoa]))
 
         local limitReached = true
-        if (ME.nbLimitSpawnedTroops[1]~=0 or ME.nbLimitSpawnedTroops[2]~=0) and (ME.InfantryInGameCount[heloCoa] + groupTotal > ME.nbLimitSpawnedTroops[heloCoa]) then  -- load troops only if Coa limit not reached
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("Count Infantries limit in the mission reached, you can't load more troops"), 10)
+        if (WE.nbLimitSpawnedTroops[1]~=0 or WE.nbLimitSpawnedTroops[2]~=0) and (WE.InfantryInGameCount[heloCoa] + groupTotal > WE.nbLimitSpawnedTroops[heloCoa]) then  -- load troops only if Coa limit not reached
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("Count Infantries limit in the mission reached, you can't load more troops"), 10)
             return false
         end
 
         if _zone.limit - 1 >= 0 then
             -- decrease zone counter by 1
-            ME.updateZoneCounter(_zone.index, -1)
-            ME.loadTroops(_heli, _troops,_groupTemplate)
+            WE.updateZoneCounter(_zone.index, -1)
+            WE.loadTroops(_heli, _troops,_groupTemplate)
             return true
         else
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("This area has no more reinforcements available!"), 20)
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("This area has no more reinforcements available!"), 20)
             return false
         end
     else
         if _allowExtract then
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("You are not in a pickup zone and no one is nearby to extract"), 10)
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("You are not in a pickup zone and no one is nearby to extract"), 10)
         else
-            ME.displayMessageToGroup(_heli, ME.i18n_translate("You are not in a pickup zone"), 10)
+            WE.displayMessageToGroup(_heli, WE.i18n_translate("You are not in a pickup zone"), 10)
         end
 
         return false
@@ -797,46 +802,46 @@ end
 --- unload troops from helicopter to zone or deploy nearby
 --- @param _args table arguments table
 --- @return boolean true if troops unloaded, false otherwise
-function ME.unloadTroops(_args)
-    local _heli = ME.getTransportUnit(_args[1])
+function WE.unloadTroops(_args)
+    local _heli = WE.getTransportUnit(_args[1])
     local _troops = _args[2]
 
     if _heli == nil then
         return false
     end
 
-    local _zone = ME.inPickupZone(_heli)
-    if not ME.troopsOnboard(_heli, _troops) then
-        ME.displayMessageToGroup(_heli, ME.i18n_translate("No one to unload"), 10)
+    local _zone = WE.inPickupZone(_heli)
+    if not WE.troopsOnboard(_heli, _troops) then
+        WE.displayMessageToGroup(_heli, WE.i18n_translate("No one to unload"), 10)
 
         return false
     else
         -- troops must be onboard to get here
         if _zone.inZone == true then
             if _troops then
-                ME.displayMessageToGroup(_heli, ME.i18n_translate("Dropped troops back to base"), 20)
+                WE.displayMessageToGroup(_heli, WE.i18n_translate("Dropped troops back to base"), 20)
 
-                ME.processCallback({ unit = _heli, unloaded = ME.inTransitTroops[_heli:getName()].troops, action =
+                WE.processCallback({ unit = _heli, unloaded = WE.inTransitTroops[_heli:getName()].troops, action =
                 "unload_troops_zone" })
 
-                ME.inTransitTroops[_heli:getName()].troops = nil
+                WE.inTransitTroops[_heli:getName()].troops = nil
             else
-                ME.displayMessageToGroup(_heli, ME.i18n_translate("Dropped vehicles back to base"), 20)
+                WE.displayMessageToGroup(_heli, WE.i18n_translate("Dropped vehicles back to base"), 20)
 
-                ME.processCallback({ unit = _heli, unloaded = ME.inTransitTroops[_heli:getName()].vehicles, action =
+                WE.processCallback({ unit = _heli, unloaded = WE.inTransitTroops[_heli:getName()].vehicles, action =
                 "unload_vehicles_zone" })
 
-                ME.inTransitTroops[_heli:getName()].vehicles = nil
+                WE.inTransitTroops[_heli:getName()].vehicles = nil
             end
 
-            ME.adaptWeightToCargo(_heli:getName())
+            WE.adaptWeightToCargo(_heli:getName())
 
             -- increase zone counter by 1
-            ME.updateZoneCounter(_zone.index, 1)
+            WE.updateZoneCounter(_zone.index, 1)
 
             return true
-        elseif ME.troopsOnboard(_heli, _troops) then
-            return ME.deployTroops(_heli, _troops)
+        elseif WE.troopsOnboard(_heli, _troops) then
+            return WE.deployTroops(_heli, _troops)
         end
     end
     return false
@@ -847,8 +852,8 @@ end
 --- @param _text string message text
 --- @param _time number display time
 --- @param _clear? boolean clear previous messages
-function ME.displayMessageToGroup(_unit, _text, _time, _clear)
-    local _groupId = ME.getGroupId(_unit)
+function WE.displayMessageToGroup(_unit, _text, _time, _clear)
+    local _groupId = WE.getGroupId(_unit)
     if _groupId then
         if _clear == true then
             trigger.action.outTextForGroup(_groupId, _text, _time, _clear)
@@ -861,7 +866,7 @@ end
 --- Get height difference between unit and ground
 --- @param _unit Unit unit to check
 --- @return number height difference
-function ME.heightDiff(_unit)
+function WE.heightDiff(_unit)
     local _point = _unit:getPoint()
     return _point.y - land.getHeight({ x = _point.x, y = _point.z })
 end
@@ -869,10 +874,10 @@ end
 --- Get crate static object by name
 --- @param _name string crate unit name
 --- @return Unit crate static object
-function ME.getCrateObject(_name)
+function WE.getCrateObject(_name)
     local _crate
 
-    if ME.staticBugWorkaround then
+    if WE.staticBugWorkaround then
         _crate = Unit.getByName(_name)
     else
         _crate = StaticObject.getByName(_name)
@@ -883,7 +888,7 @@ end
 --- Gets the center of a bunch of points!
 --- @param _points table list of points
 --- @return table centroid point with height
-function ME.getCentroid(_points)
+function WE.getCentroid(_points)
     local _tx, _ty = 0, 0
     for _index, _point in ipairs(_points) do
         _tx = _tx + _point.x
@@ -902,7 +907,7 @@ end
 --- Count the number of entries in a table
 --- @param _table table input table
 --- @return number count of entries
-function ME.countTableEntries(_table)
+function WE.countTableEntries(_table)
     if _table == nil then
         return 0
     end
@@ -922,7 +927,7 @@ end
 --- @param _point table point to search from
 --- @param _searchDistance number maximum search distance
 --- @return table point of nearest enemy or random point
-function ME.findNearestEnemy(_side, _point, _searchDistance)
+function WE.findNearestEnemy(_side, _point, _searchDistance)
     local _closestEnemy = nil
 
     local _groups
@@ -954,7 +959,7 @@ function ME.findNearestEnemy(_side, _point, _searchDistance)
 
                 if _leader ~= nil then
                     local _leaderPos = _leader:getPoint()
-                    local _dist = ME.getDistance(_heliPoint, _leaderPos)
+                    local _dist = WE.getDistance(_heliPoint, _leaderPos)
                     if _dist < _closestEnemyDist then
                         _closestEnemyDist = _dist
                         _closestEnemy = _leaderPos
@@ -970,9 +975,9 @@ function ME.findNearestEnemy(_side, _point, _searchDistance)
         -- env.info("found enemy")
         return _closestEnemy
     else
-        local _x = _heliPoint.x + math.random(0, ME.maximumMoveDistance) - math.random(0, ME.maximumMoveDistance)
-        local _z = _heliPoint.z + math.random(0, ME.maximumMoveDistance) - math.random(0, ME.maximumMoveDistance)
-        local _y = _heliPoint.y + math.random(0, ME.maximumMoveDistance) - math.random(0, ME.maximumMoveDistance)
+        local _x = _heliPoint.x + math.random(0, WE.maximumMoveDistance) - math.random(0, WE.maximumMoveDistance)
+        local _z = _heliPoint.z + math.random(0, WE.maximumMoveDistance) - math.random(0, WE.maximumMoveDistance)
+        local _y = _heliPoint.y + math.random(0, WE.maximumMoveDistance) - math.random(0, WE.maximumMoveDistance)
 
         return { x = _x, z = _z, y = _y }
     end
@@ -982,11 +987,11 @@ end
 --- @param _heli Unit helicopter unit
 --- @param _groups table list of group names
 --- @return table|nil nearest group and details
-function ME.findNearestGroup(_heli, _groups)
+function WE.findNearestGroup(_heli, _groups)
     local _closestGroupDetails = {}
     local _closestGroup = nil
 
-    local _closestGroupDist = ME.maxExtractDistance
+    local _closestGroupDist = WE.maxExtractDistance
 
     local _heliPoint = _heli:getPoint()
 
@@ -1020,7 +1025,7 @@ function ME.findNearestGroup(_heli, _groups)
 
                 if _leader ~= nil then
                     local _leaderPos = _leader:getPoint()
-                    local _dist = ME.getDistance(_heliPoint, _leaderPos)
+                    local _dist = WE.getDistance(_heliPoint, _leaderPos)
                     if _dist < _closestGroupDist then
                         _closestGroupDist = _dist
                         _closestGroupDetails = _groupDetails
@@ -1045,7 +1050,7 @@ end
 --- @param _angle number heading angle in radians
 --- @param _details table unit details
 --- @return table unit table
-function ME.createUnit(_x, _y, _angle, _details)
+function WE.createUnit(_x, _y, _angle, _details)
     local _newUnit = {
         ["y"] = _y,
         ["type"] = _details.type,
@@ -1063,8 +1068,8 @@ end
 
 --- Drop smoke from helicopter
 --- @param _args table arguments (heli name, smoke color)
-function ME.dropSmoke(_args)
-    local _heli = ME.getTransportUnit(_args[1])
+function WE.dropSmoke(_args)
+    local _heli = WE.getTransportUnit(_args[1])
 
     if _heli ~= nil then
         local _colour = ""
@@ -1088,17 +1093,17 @@ function ME.dropSmoke(_args)
         trigger.action.smoke(_pos3, _args[2])
 
         trigger.action.outTextForCoalition(_heli:getCoalition(),
-            ME.i18n_translate("%1 dropped %2 smoke.", ME.getPlayerNameOrType(_heli), _colour), 10)
+            WE.i18n_translate("%1 dropped %2 smoke.", WE.getPlayerNameOrType(_heli), _colour), 10)
     end
 end
 
 --- Can unit carry vehicles
 --- @param _unit Unit unit to check
 --- @return boolean can carry vehicles
-function ME.unitCanCarryVehicles(_unit)
+function WE.unitCanCarryVehicles(_unit)
     local _type = string.lower(_unit:getTypeName())
 
-    for _, _name in ipairs(ME.vehicleTransportEnabled) do
+    for _, _name in ipairs(WE.vehicleTransportEnabled) do
         local _nameLower = string.lower(_name)
         if string.find(_type, _nameLower, 1, true) then
             return true
@@ -1111,14 +1116,14 @@ end
 --- Is unit capable of dynamic cargo operations
 --- @param _unit Unit unit to check
 --- @return boolean capable
-function ME.unitDynamicCargoCapable(_unit)
+function WE.unitDynamicCargoCapable(_unit)
     local cache = {}
     local _type = string.lower(_unit:getTypeName())
     local result = cache[_type]
     if result == nil then
         result = false
-        --ME.logDebug("ME.unitDynamicCargoCapable(_type=[%s])", ME.p(_type))
-        for _, _name in ipairs(ME.dynamicCargoUnits) do
+        --WE.logDebug("WE.unitDynamicCargoCapable(_type=[%s])", WE.p(_type))
+        for _, _name in ipairs(WE.dynamicCargoUnits) do
             local _nameLower = string.lower(_name)
             if string.find(_type, _nameLower, 1, true) then    --string.match does not work with patterns containing '-' as it is a magic character
                 result = true
@@ -1132,8 +1137,8 @@ end
 
 --- Process all registered callbacks
 --- @param _callbackArgs table arguments to pass to callbacks
-function ME.processCallback(_callbackArgs)
-    for _, _callback in pairs(ME.callbacks) do
+function WE.processCallback(_callbackArgs)
+    for _, _callback in pairs(WE.callbacks) do
         local _status, _result = pcall(function()
             _callback(_callbackArgs)
         end)
@@ -1145,42 +1150,42 @@ function ME.processCallback(_callbackArgs)
 end
 
 --- checks the status of all AI troop carriers and auto loads and unloads troops as long as the troops are on the ground
-function ME.checkAIStatus()
-    timer.scheduleFunction(ME.checkAIStatus, nil, timer.getTime() + 2)
-    for _, _unitName in pairs(ME.transportPilotNames) do
+function WE.checkAIStatus()
+    timer.scheduleFunction(WE.checkAIStatus, nil, timer.getTime() + 2)
+    for _, _unitName in pairs(WE.transportPilotNames) do
         local status, error = pcall(function()
-            local _unit = ME.getTransportUnit(_unitName)
+            local _unit = WE.getTransportUnit(_unitName)
 
             -- no player name means AI!
             if _unit ~= nil and _unit:getPlayerName() == nil then
-                local _zone = ME.inPickupZone(_unit)
+                local _zone = WE.inPickupZone(_unit)
                 --    env.error("Checking.. ".._unit:getName())
-                if _zone.inZone == true and not ME.troopsOnboard(_unit, true) then
+                if _zone.inZone == true and not WE.troopsOnboard(_unit, true) then
                     --     env.error("in zone, loading.. ".._unit:getName())
 
-                    if ME.allowRandomAiTeamPickups == true then
+                    if WE.allowRandomAiTeamPickups == true then
                         -- Random troop pickup implementation
                         local _team = nil
                         if _unit:getCoalition() == 1 then
-                            _team = math.floor((math.random(#ME.redTeams * 100) / 100) + 1)
-                            ME.loadTroopsFromZone({ _unitName, true, ME.loadableGroups[ME.redTeams[_team]], true })
+                            _team = math.floor((math.random(#WE.redTeams * 100) / 100) + 1)
+                            WE.loadTroopsFromZone({ _unitName, true, WE.loadableGroups[WE.redTeams[_team]], true })
                         else
-                            _team = math.floor((math.random(#ME.blueTeams * 100) / 100) + 1)
-                            ME.loadTroopsFromZone({ _unitName, true, ME.loadableGroups[ME.blueTeams[_team]], true })
+                            _team = math.floor((math.random(#WE.blueTeams * 100) / 100) + 1)
+                            WE.loadTroopsFromZone({ _unitName, true, WE.loadableGroups[WE.blueTeams[_team]], true })
                         end
                     else
-                        ME.loadTroopsFromZone({ _unitName, true, "", true })
+                        WE.loadTroopsFromZone({ _unitName, true, "", true })
                     end
-                elseif ME.inDropoffZone(_unit) and ME.troopsOnboard(_unit, true) then
+                elseif WE.inDropoffZone(_unit) and WE.troopsOnboard(_unit, true) then
                     --         env.error("in dropoff zone, unloading.. ".._unit:getName())
-                    ME.unloadTroops({ _unitName, true })
+                    WE.unloadTroops({ _unitName, true })
                 end
 
-                if ME.unitCanCarryVehicles(_unit) then
-                    if _zone.inZone == true and not ME.troopsOnboard(_unit, false) then
-                        ME.loadTroopsFromZone({ _unitName, false, "", true })
-                    elseif ME.inDropoffZone(_unit) and ME.troopsOnboard(_unit, false) then
-                        ME.unloadTroops({ _unitName, false })
+                if WE.unitCanCarryVehicles(_unit) then
+                    if _zone.inZone == true and not WE.troopsOnboard(_unit, false) then
+                        WE.loadTroopsFromZone({ _unitName, false, "", true })
+                    elseif WE.inDropoffZone(_unit) and WE.troopsOnboard(_unit, false) then
+                        WE.unloadTroops({ _unitName, false })
                     end
                 end
             end
@@ -1195,20 +1200,20 @@ end
 --- Get transport limit for unit type
 --- @param _unitType string unit type
 --- @return number transport limit
-function ME.getTransportLimit(_unitType)
-    if ME.unitLoadLimits[_unitType] then
-        return ME.unitLoadLimits[_unitType]
+function WE.getTransportLimit(_unitType)
+    if WE.unitLoadLimits[_unitType] then
+        return WE.unitLoadLimits[_unitType]
     end
 
-    return ME.numberOfTroops
+    return WE.numberOfTroops
 end
 
 --- Get unit actions for unit type
 --- @param _unitType string unit type
 --- @return table unit actions
-function ME.getUnitActions(_unitType)
-    if ME.unitActions[_unitType] then
-        return ME.unitActions[_unitType]
+function WE.getUnitActions(_unitType)
+    if WE.unitActions[_unitType] then
+        return WE.unitActions[_unitType]
     end
 
     return { crates = true, troops = true }
@@ -1218,7 +1223,7 @@ end
 --- @param _point1 table first point with x and z coordinates
 --- @param _point2 table second point with x and z coordinates
 --- @return number distance in meters
-function ME.getDistance(_point1, _point2)
+function WE.getDistance(_point1, _point2)
     local xUnit = _point1.x
     local yUnit = _point1.z
     local xZone = _point2.x
@@ -1235,22 +1240,122 @@ end
 
 --- Radio menu references for World Events
 WE.radioMenu = {}
-WE.radioMenu.mainMenu = nil
-WE.radioMenu.spawnEventMenu = nil
-WE.radioMenu.eventStatusMenu = nil
 
---- Initialize the radio menu system for World Events
+--- Check if group has access to radio commands
+--- @param groupName string the name of the aircraft group
+--- @return boolean true if group has access, false otherwise
+function WE.hasRadioAccess(groupName)
+    if not WE.RadioUsers or not groupName then
+        WE.logInfo("hasRadioAccess: Missing RadioUsers or groupName - RadioUsers: %s, groupName: %s", tostring(WE.RadioUsers), tostring(groupName))
+        return false
+    end
+    
+    -- Check if "ALL" is in the RadioUsers table
+    for _, user in pairs(WE.RadioUsers) do
+        if string.upper(user) == "ALL" then
+            WE.logInfo("hasRadioAccess: Found 'ALL' access for group %s", groupName)
+            return true
+        end
+    end
+    
+    -- Check if any of the RadioUsers strings are contained in the group name
+    for _, user in pairs(WE.RadioUsers) do
+        WE.logInfo("hasRadioAccess: Checking if group '%s' contains user string '%s'", groupName, user)
+        if string.find(string.upper(groupName), string.upper(user), 1, true) then
+            WE.logInfo("hasRadioAccess: Group '%s' GRANTED access (matches user string '%s')", groupName, user)
+            return true
+        end
+    end
+    
+    WE.logInfo("hasRadioAccess: Group '%s' DENIED access - no matching user strings", groupName)
+    return false
+end
+
+--- Initialize radio menus for a specific group
+--- @param groupId number the group ID to add menus for
+--- @param groupName string the group name to check permissions
+function WE.initializePlayerRadioMenu(groupId, groupName)
+    if not WE.hasRadioAccess(groupName) then
+        WE.logInfo("Group %s does not have radio access", groupName)
+        return
+    end
+    
+    WE.logInfo("Initializing World Events radio menu for group: %s (Group ID: %d)", groupName, groupId)
+    
+    if not WE.radioMenu[groupId] then
+        WE.radioMenu[groupId] = {}
+    end
+    
+    -- Create main WorldEvents menu for this group
+    WE.radioMenu[groupId].mainMenu = missionCommands.addSubMenuForGroup(groupId, "WorldEvents")
+    
+    -- Add submenu items for this group
+    WE.radioMenu[groupId].spawnEventMenu = missionCommands.addCommandForGroup(groupId, "Spawn Event", WE.radioMenu[groupId].mainMenu, WE.spawnEventMenuAction)
+    WE.radioMenu[groupId].eventStatusMenu = missionCommands.addCommandForGroup(groupId, "Event Status", WE.radioMenu[groupId].mainMenu, WE.showEventStatusAction)
+    
+    WE.logInfo("World Events radio menu initialized successfully for group: %s", groupName)
+end
+
+--- Initialize the radio menu system for World Events (checks all players)
 function WE.initializeRadioMenu()
     WE.logInfo("Initializing World Events radio menu system")
     
-    -- Create main WorldEvents menu
-    WE.radioMenu.mainMenu = missionCommands.addSubMenu("WorldEvents")
+    -- Check if "ALL" is configured for universal access
+    local hasAllAccess = false
+    if WE.RadioUsers then
+        for _, user in pairs(WE.RadioUsers) do
+            if string.upper(user) == "ALL" then
+                hasAllAccess = true
+                break
+            end
+        end
+    end
     
-    -- Add submenu items
-    WE.radioMenu.spawnEventMenu = missionCommands.addCommand("Spawn Event", WE.radioMenu.mainMenu, WE.spawnEventMenuAction)
-    WE.radioMenu.eventStatusMenu = missionCommands.addCommand("Event Status", WE.radioMenu.mainMenu, WE.showEventStatusAction)
+    if hasAllAccess then
+        -- Create global menu for everyone
+        WE.radioMenu.mainMenu = missionCommands.addSubMenu("WorldEvents")
+        WE.radioMenu.spawnEventMenu = missionCommands.addCommand("Spawn Event", WE.radioMenu.mainMenu, WE.spawnEventMenuAction)
+        WE.radioMenu.eventStatusMenu = missionCommands.addCommand("Event Status", WE.radioMenu.mainMenu, WE.showEventStatusAction)
+        WE.logInfo("World Events radio menu initialized globally for all players")
+    else
+        -- Check each player group and add menus individually
+        for coalitionId = 1, 2 do
+            local groups = coalition.getGroups(coalitionId, Group.Category.AIRPLANE)
+            for _, group in pairs(groups) do
+                if group and group:isExist() then
+                    local units = group:getUnits()
+                    if units and #units > 0 then
+                        local unit = units[1]
+                        if unit and unit:isExist() then
+                            local playerName = unit:getPlayerName()
+                            if playerName then
+                                WE.initializePlayerRadioMenu(group:getID(), group:getName())
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Also check helicopter groups
+            local heliGroups = coalition.getGroups(coalitionId, Group.Category.HELICOPTER)
+            for _, group in pairs(heliGroups) do
+                if group and group:isExist() then
+                    local units = group:getUnits()
+                    if units and #units > 0 then
+                        local unit = units[1]
+                        if unit and unit:isExist() then
+                            local playerName = unit:getPlayerName()
+                            if playerName then
+                                WE.initializePlayerRadioMenu(group:getID(), group:getName())
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
     
-    WE.logInfo("World Events radio menu initialized successfully")
+    WE.logInfo("World Events radio menu initialization complete")
 end
 
 --- Action for Spawn Event menu option
@@ -1286,6 +1391,7 @@ end
 
 --- Remove all World Events radio menus (cleanup function)
 function WE.removeRadioMenu()
+    -- Remove global menus if they exist
     if WE.radioMenu.spawnEventMenu then
         missionCommands.removeItem(WE.radioMenu.spawnEventMenu)
         WE.radioMenu.spawnEventMenu = nil
@@ -1301,22 +1407,179 @@ function WE.removeRadioMenu()
         WE.radioMenu.mainMenu = nil
     end
     
+    -- Remove per-group menus
+    for groupId, menuData in pairs(WE.radioMenu) do
+        if type(groupId) == "number" and type(menuData) == "table" then
+            if menuData.spawnEventMenu then
+                missionCommands.removeItemForGroup(groupId, menuData.spawnEventMenu)
+            end
+            if menuData.eventStatusMenu then
+                missionCommands.removeItemForGroup(groupId, menuData.eventStatusMenu)
+            end
+            if menuData.mainMenu then
+                missionCommands.removeItemForGroup(groupId, menuData.mainMenu)
+            end
+            WE.radioMenu[groupId] = nil
+        end
+    end
+    
     WE.logInfo("World Events radio menu removed")
 end
 
 -----------------[[ END OF radio.lua ]]-----------------
+-----------------[[ event.lua ]]-----------------
+
+--- Event handling system for World Events
+WE.eventHandlers = {}
+
+--- Event handler for when players join/leave to update radio menus
+function WE.onPlayerEvent(event)
+    if not event then
+        WE.logInfo("Event received: event object is nil!")
+        return
+    end
+    
+    WE.logInfo("Event received: %s (event type: %s)", tostring(event.id), type(event.id))
+    
+    if event.id == world.event.S_EVENT_PLAYER_ENTER_UNIT then
+        if event.initiator and event.initiator:getPlayerName() then
+            local playerName = event.initiator:getPlayerName()
+            local group = event.initiator:getGroup()
+            if group then
+                local groupId = group:getID()
+                local groupName = group:getName()
+                WE.logInfo("Player '%s' entering unit in group '%s' (ID: %d)", playerName, groupName, groupId)
+                
+                -- Small delay to ensure unit is fully initialized
+                timer.scheduleFunction(function()
+                    -- Remove any existing menu for this group first (in case of reslotting)
+                    if WE.radioMenu[groupId] then
+                        WE.logInfo("Removing existing radio menu for group %d before re-creating", groupId)
+                        if WE.radioMenu[groupId].spawnEventMenu then
+                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
+                        end
+                        if WE.radioMenu[groupId].eventStatusMenu then
+                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
+                        end
+                        if WE.radioMenu[groupId].mainMenu then
+                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
+                        end
+                        WE.radioMenu[groupId] = nil
+                    end
+                    
+                    -- Now initialize menu with proper access control
+                    WE.initializePlayerRadioMenu(groupId, groupName)
+                end, nil, timer.getTime() + 1)
+            end
+        end
+    elseif event.id == world.event.S_EVENT_BIRTH then
+        -- Handle unit birth (spawning) events
+        if event.initiator and event.initiator:getPlayerName() then
+            local playerName = event.initiator:getPlayerName()
+            local group = event.initiator:getGroup()
+            if group then
+                local groupId = group:getID()
+                local groupName = group:getName()
+                WE.logInfo("Player '%s' spawned in group '%s' (ID: %d) via BIRTH event", playerName, groupName, groupId)
+                
+                -- Small delay to ensure unit is fully initialized
+                timer.scheduleFunction(function()
+                    -- Remove any existing menu for this group first
+                    if WE.radioMenu[groupId] then
+                        WE.logInfo("Removing existing radio menu for group %d before re-creating (BIRTH)", groupId)
+                        if WE.radioMenu[groupId].spawnEventMenu then
+                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
+                        end
+                        if WE.radioMenu[groupId].eventStatusMenu then
+                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
+                        end
+                        if WE.radioMenu[groupId].mainMenu then
+                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
+                        end
+                        WE.radioMenu[groupId] = nil
+                    end
+                    
+                    -- Initialize menu with proper access control
+                    WE.initializePlayerRadioMenu(groupId, groupName)
+                end, nil, timer.getTime() + 2)
+            end
+        end
+    elseif event.id == world.event.S_EVENT_PLAYER_LEAVE_UNIT then
+        if event.initiator then
+            local group = event.initiator:getGroup()
+            if group then
+                local groupId = group:getID()
+                local groupName = group:getName() or "Unknown"
+                WE.logInfo("Player leaving unit in group '%s' (ID: %d)", groupName, groupId)
+                
+                -- Remove radio menu for this group
+                if WE.radioMenu[groupId] then
+                    WE.logInfo("Removing radio menu for group %d due to player leaving", groupId)
+                    if WE.radioMenu[groupId].spawnEventMenu then
+                        missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
+                    end
+                    if WE.radioMenu[groupId].eventStatusMenu then
+                        missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
+                    end
+                    if WE.radioMenu[groupId].mainMenu then
+                        missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
+                    end
+                    WE.radioMenu[groupId] = nil
+                end
+            end
+        end
+    end
+end
+
+--- Initialize the event handling system
+function WE.initializeEvents()
+    WE.logInfo("Initializing World Events event handling system")
+    
+    -- Create event handler object for player events using proper DCS format
+    WE.playerEventHandler = {}
+    function WE.playerEventHandler:onEvent(event)
+        WE.onPlayerEvent(event)
+    end
+    
+    -- Register event handlers
+    world.addEventHandler(WE.playerEventHandler)
+    WE.logInfo("Player event handler registered for radio menu management")
+    
+    -- Store reference for cleanup
+    WE.eventHandlers.playerEventHandler = WE.playerEventHandler
+    
+    WE.logInfo("World Events event handling system initialization complete")
+end
+
+--- Cleanup event handlers
+function WE.cleanupEvents()
+    WE.logInfo("Cleaning up World Events event handlers")
+    
+    if WE.eventHandlers.playerEventHandler then
+        world.removeEventHandler(WE.eventHandlers.playerEventHandler)
+        WE.eventHandlers.playerEventHandler = nil
+        WE.logInfo("Player event handler removed")
+    end
+    
+    WE.logInfo("World Events event handling system cleanup complete")
+end
+
+-----------------[[ END OF event.lua ]]-----------------
 -----------------[[ init.lua ]]-----------------
 
 function WE.initialize()
     WE.logInfo(string.format("Initializing version %s", WE.Version))
     
-    -- Initialize editor functions state
-    WE.initializeEditorFunctions()
-    
     -- Initialize radio menu system
     WE.initializeRadioMenu()
     
+    -- Initialize event handling system
+    WE.initializeEvents()
+    
     WE.logInfo("World Events system initialization complete")
 end
+
+
+WE.initialize(); -- Go Time!
 
 -----------------[[ END OF init.lua ]]-----------------
