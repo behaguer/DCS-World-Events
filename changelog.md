@@ -26,8 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fallback global menu support when group detection fails
 
 ### Changed
-- Namespace standardization from mixed ME/WE to consistent WE namespace
-- CTLD functions ported to WE namespace for compatibility
 - Build system separated into `build.ps1` (combine files) and `extract.ps1` (split files)
 - Radio access control moved from player name to aircraft group name matching
 - Event handling logic separated from radio functions for better modularity
