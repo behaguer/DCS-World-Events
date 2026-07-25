@@ -8,5 +8,8 @@ WE.RadioUsers = {
     [2] = "[Patreon]",
     -- [3] = "All"
 }
+WE.EnabledEvents = {
+    ["VIP_ESCORT"] = true,
+}
 
 -----------------[[ END OF config.lua ]]-----------------

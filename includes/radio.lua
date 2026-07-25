@@ -130,8 +130,11 @@ function WE.spawnEventMenuAction()
         return
     end
     
-    -- For now, this is a placeholder - you would implement actual event spawning logic here
+    -- Trigger the VIP_ESCORT event
+
+    WE.EVENT.VIP_ESCORT()
     WE.is_active = 1
+    
     trigger.action.outText("World Event spawned! Use Event Status to check details.", 10)
     WE.logInfo("World Event spawned via radio menu")
 end

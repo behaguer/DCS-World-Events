@@ -17,3 +17,4 @@ WE.Id = "World Event - "
 --- Version.
 WE.Version = "0.0.1"
 
+WE.EVENT = {}

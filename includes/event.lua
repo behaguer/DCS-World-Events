@@ -1,7 +1,6 @@
 -----------------[[ event.lua ]]-----------------
 
---- Event handling system for World Events
-WE.eventHandlers = {}
+
 
 --- Event handler for when players join/leave to update radio menus
 function WE.onPlayerEvent(event)
@@ -133,6 +132,29 @@ function WE.cleanupEvents()
     end
     
     WE.logInfo("World Events event handling system cleanup complete")
+end
+
+function WE.addEvent(event)
+    -- Placeholder for adding a new world event
+    WE.logInfo("Adding a new world event. Event details: %s", tostring(event))
+    
+    -- Add the event to the WE.events table
+    table.insert(WE.events, event)
+end
+
+function WE.removeEvent(eventId)
+    -- Placeholder for removing a world event by ID
+    WE.logInfo("Removing world event with ID: %s", tostring(eventId))
+    
+    for index, event in ipairs(WE.events) do
+        if event.id == eventId then
+            table.remove(WE.events, index)
+            WE.logInfo("World event with ID %s removed", tostring(eventId))
+            return
+        end
+    end
+    
+    WE.logInfo("World event with ID %s not found", tostring(eventId))
 end
 
 -----------------[[ END OF event.lua ]]-----------------
