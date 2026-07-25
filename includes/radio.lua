@@ -133,9 +133,7 @@ function WE.spawnEventMenuAction()
     -- Trigger the VIP_ESCORT event
 
     WE.EVENT.VIP_ESCORT()
-    WE.is_active = 1
-    
-    trigger.action.outText("World Event spawned! Use Event Status to check details.", 10)
+
     WE.logInfo("World Event spawned via radio menu")
 end
 
@@ -146,6 +144,10 @@ function WE.showEventStatusAction()
     local statusMessage = ""
     if WE.is_active == 1 then
         statusMessage = "World Event Status: ACTIVE\n\nAn event is currently running. Check the F10 map for event details."
+        if WE.currentVIPEvent then
+            statusMessage = statusMessage .. string.format("\n\nVIP Wing: departed %s, en route to %s.",
+                tostring(WE.currentVIPEvent.departure), tostring(WE.currentVIPEvent.destination))
+        end
     else
         statusMessage = "World Event Status: INACTIVE\n\nNo events are currently active. Use 'Spawn Event' to start a new event."
     end

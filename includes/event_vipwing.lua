@@ -2,12 +2,69 @@
 ---
 --- VIP Wing event spawning module
 --- Spawns a VIP transport with fighter escort when triggered by radio menu
---- Unit data below is taken directly from the exported Vip_Wing static template
---- (red coalition, Russia: "Vip_Transport" C-130J-30 + "Vip_Wing_fighter" 4x MiG-29 Fulcrum)
+--- Unit data is taken directly from the exported Vip_Wing static template
+--- ("Vip_Transport" C-130J-30 + "Vip_Wing_fighter" 4x MiG-29 Fulcrum), but
+--- spawn/destination airfields are picked dynamically so this works on any map.
 ---
 
+--- Country used to spawn the VIP Wing units. Change this if your red side
+--- isn't Russia on the map/mod you're using.
+WE.VIPCountry = country.id.RUSSIA
+
+--- Distance (meters) the fighters will break off to engage an air threat
+--- to the escorted transport before returning to escort duty.
+WE.VIPEscortEngagementDistMax = 60000
+
+--- Track the currently active VIP Wing event (departure/destination names, group ids)
+WE.currentVIPEvent = nil
+
+--- Get all currently red-owned airdrome-category airbases (excludes ships/FARPs/helipads)
+--- @return table list of Airbase objects
+function WE.getRedAirdromes()
+    local _airdromes = {}
+    local _bases = coalition.getAirbases(coalition.side.RED)
+
+    if _bases then
+        for _, _base in pairs(_bases) do
+            if _base and _base:isExist() then
+                local _desc = _base:getDesc()
+                if _desc and _desc.category == Airbase.Category.AIRDROME then
+                    table.insert(_airdromes, _base)
+                end
+            end
+        end
+    end
+
+    return _airdromes
+end
+
+--- Pick two different random red airdromes to use as departure and destination
+--- @return Airbase|nil departure airbase
+--- @return Airbase|nil destination airbase
+function WE.pickVIPAirfields()
+    local _airdromes = WE.getRedAirdromes()
+
+    if #_airdromes < 2 then
+        WE.logWarning("pickVIPAirfields: found only %d red airdrome(s) on this map, need at least 2", #_airdromes)
+        return nil, nil
+    end
+
+    local _depIndex = math.random(1, #_airdromes)
+    local _departure = _airdromes[_depIndex]
+
+    local _destIndex = _depIndex
+    while _destIndex == _depIndex do
+        _destIndex = math.random(1, #_airdromes)
+    end
+    local _destination = _airdromes[_destIndex]
+
+    return _departure, _destination
+end
+
 --- Spawn VIP Wing with fighter escort
---- This function spawns two groups: VIP transport aircraft and fighter escort
+--- This function spawns two groups: a VIP transport aircraft flying from a random
+--- red airfield to another random red airfield, and a fighter escort that stays
+--- close to the transport but will break off to engage any blue air threat.
 function WE.EVENT.VIP_ESCORT()
     WE.logInfo("VIP Wing spawn event triggered")
 
@@ -18,9 +75,32 @@ function WE.EVENT.VIP_ESCORT()
         return
     end
 
+    -- Pick a departure and destination airfield dynamically so this works on any map
+    local _departureAirfield, _destinationAirfield = WE.pickVIPAirfields()
+
+    if _departureAirfield == nil or _destinationAirfield == nil then
+        WE.logError("VIP_ESCORT: not enough red airdromes on this map - event cancelled")
+        trigger.action.outText("VIP Wing event could not start: not enough red-controlled airfields on this map!", 10)
+        return
+    end
+
+    local _depPoint = _departureAirfield:getPoint()
+    local _destPoint = _destinationAirfield:getPoint()
+    local _depName = _departureAirfield:getName()
+    local _destName = _destinationAirfield:getName()
+    local _depId = _departureAirfield:getID()
+    local _destId = _destinationAirfield:getID()
+
+    WE.logInfo("VIP_ESCORT: departure=%s (id %s), destination=%s (id %s)", _depName, tostring(_depId), _destName,
+        tostring(_destId))
+
     WE.logInfo("Spawning VIP Wing groups...")
 
-    -- VIP Transport Group (from static template group "Vip_Transport")
+    -- Reserve the transport's group id up front so the fighter escort task can reference it
+    local _transportGroupId = WE.getNextGroupId()
+
+    -- VIP Transport Group (unit data from static template group "Vip_Transport"),
+    -- route now flies from the departure airfield to the destination airfield
     local vipTransportGroup = {
         ["modulation"] = 0,
         ["tasks"] = {},
@@ -31,10 +111,11 @@ function WE.EVENT.VIP_ESCORT()
         ["route"] = {
             ["points"] = {
                 [1] = {
-                    ["alt"] = 4572,
-                    ["action"] = "Turning Point",
+                    ["alt"] = _depPoint.y,
+                    ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
                     ["speed"] = 154.16666666667,
+                    ["airdromeId"] = _depId,
                     ["task"] = {
                         ["id"] = "ComboTask",
                         ["params"] = {
@@ -57,11 +138,30 @@ function WE.EVENT.VIP_ESCORT()
                             },
                         },
                     },
-                    ["type"] = "Turning Point",
+                    ["type"] = "TakeOff",
                     ["ETA"] = 0,
                     ["ETA_locked"] = true,
-                    ["y"] = 26485.503976522,
-                    ["x"] = 13241.662677759,
+                    ["y"] = _depPoint.z,
+                    ["x"] = _depPoint.x,
+                    ["speed_locked"] = true,
+                    ["formation_template"] = "",
+                },
+                [2] = {
+                    ["alt"] = _destPoint.y,
+                    ["action"] = "Landing",
+                    ["alt_type"] = "BARO",
+                    ["speed"] = 154.16666666667,
+                    ["airdromeId"] = _destId,
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = {
+                            ["tasks"] = {},
+                        },
+                    },
+                    ["type"] = "Land",
+                    ["ETA_locked"] = false,
+                    ["y"] = _destPoint.z,
+                    ["x"] = _destPoint.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -69,7 +169,7 @@ function WE.EVENT.VIP_ESCORT()
         },
         ["units"] = {
             [1] = {
-                ["alt"] = 4572,
+                ["alt"] = _depPoint.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "iqaf 23rd sqn, new al muthana air base",
                 ["skill"] = "Excellent",
@@ -85,9 +185,9 @@ function WE.EVENT.VIP_ESCORT()
                 ["unitId"] = WE.getNextUnitId(),
                 ["psi"] = 0,
                 ["onboard_num"] = "014",
-                ["y"] = 26485.503976522,
-                ["x"] = 13241.662677759,
-                ["name"] = "Aerial-2-2",
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
+                ["name"] = "RSD381 VIP",
                 ["payload"] = {
                     ["pylons"] = {},
                     ["fuel"] = 15753.6,
@@ -99,16 +199,18 @@ function WE.EVENT.VIP_ESCORT()
                 ["callsign"] = 126,
             },
         },
-        ["y"] = 26485.503976522,
-        ["x"] = 13241.662677759,
+        ["y"] = _depPoint.z,
+        ["x"] = _depPoint.x,
         ["name"] = "Vip_Transport",
         ["communication"] = true,
         ["start_time"] = 0,
-        ["groupId"] = WE.getNextGroupId(),
+        ["groupId"] = _transportGroupId,
         ["frequency"] = 305,
     }
 
-    -- VIP Fighter Escort Group (from static template group "Vip_Wing_fighter")
+    -- VIP Fighter Escort Group (unit data from static template group "Vip_Wing_fighter").
+    -- Takes off from the same airfield and is tasked to escort the transport: stay
+    -- close to it, but break off to engage any air threat within engagement range.
     local vipFighterGroup = {
         ["modulation"] = 0,
         ["tasks"] = {},
@@ -120,16 +222,46 @@ function WE.EVENT.VIP_ESCORT()
             ["routeRelativeTOT"] = true,
             ["points"] = {
                 [1] = {
-                    ["alt"] = 4572,
-                    ["action"] = "Turning Point",
+                    ["alt"] = _depPoint.y,
+                    ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
                     ["speed"] = 220.97222222222,
+                    ["airdromeId"] = _depId,
                     ["task"] = {
                         ["id"] = "ComboTask",
                         ["params"] = {
                             ["tasks"] = {
                                 [1] = {
                                     ["number"] = 1,
+                                    ["auto"] = true,
+                                    ["id"] = "Escort",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["groupId"] = _transportGroupId,
+                                        ["lastWptIndexFlagChangedManually"] = false,
+                                        ["lastWptIndex"] = nil,
+                                        ["engagementDistMax"] = WE.VIPEscortEngagementDistMax,
+                                        ["targetTypes"] = {
+                                            [1] = "Air",
+                                        },
+                                        ["position"] = { ["x"] = -200, ["y"] = 50, ["z"] = 300 },
+                                    },
+                                },
+                                [2] = {
+                                    ["number"] = 2,
+                                    ["key"] = "CAP",
+                                    ["id"] = "EngageTargets",
+                                    ["enabled"] = true,
+                                    ["auto"] = true,
+                                    ["params"] = {
+                                        ["targetTypes"] = {
+                                            [1] = "Air",
+                                        },
+                                        ["priority"] = 0,
+                                    },
+                                },
+                                [3] = {
+                                    ["number"] = 3,
                                     ["auto"] = true,
                                     ["id"] = "WrappedAction",
                                     ["enabled"] = true,
@@ -143,8 +275,8 @@ function WE.EVENT.VIP_ESCORT()
                                         },
                                     },
                                 },
-                                [2] = {
-                                    ["number"] = 2,
+                                [4] = {
+                                    ["number"] = 4,
                                     ["auto"] = true,
                                     ["id"] = "WrappedAction",
                                     ["enabled"] = true,
@@ -158,8 +290,8 @@ function WE.EVENT.VIP_ESCORT()
                                         },
                                     },
                                 },
-                                [3] = {
-                                    ["number"] = 3,
+                                [5] = {
+                                    ["number"] = 5,
                                     ["auto"] = true,
                                     ["id"] = "WrappedAction",
                                     ["enabled"] = true,
@@ -173,55 +305,8 @@ function WE.EVENT.VIP_ESCORT()
                                         },
                                     },
                                 },
-                                [4] = {
-                                    ["number"] = 4,
-                                    ["auto"] = true,
-                                    ["id"] = "WrappedAction",
-                                    ["enabled"] = true,
-                                    ["params"] = {
-                                        ["action"] = {
-                                            ["id"] = "Option",
-                                            ["params"] = {
-                                                ["targetTypes"] = {},
-                                                ["name"] = 21,
-                                                ["value"] = "none;",
-                                                ["noTargetTypes"] = {
-                                                    [1] = "Fighters",
-                                                    [2] = "Multirole fighters",
-                                                    [3] = "Bombers",
-                                                    [4] = "Helicopters",
-                                                    [5] = "UAVs",
-                                                    [6] = "Infantry",
-                                                    [7] = "Fortifications",
-                                                    [8] = "Tanks",
-                                                    [9] = "IFV",
-                                                    [10] = "APC",
-                                                    [11] = "Artillery",
-                                                    [12] = "Unarmed vehicles",
-                                                    [13] = "AAA",
-                                                    [14] = "SR SAM",
-                                                    [15] = "MR SAM",
-                                                    [16] = "LR SAM",
-                                                    [17] = "Aircraft Carriers",
-                                                    [18] = "Cruisers",
-                                                    [19] = "Destroyers",
-                                                    [20] = "Frigates",
-                                                    [21] = "Corvettes",
-                                                    [22] = "Light armed ships",
-                                                    [23] = "Unarmed ships",
-                                                    [24] = "Submarines",
-                                                    [25] = "Cruise missiles",
-                                                    [26] = "Antiship Missiles",
-                                                    [27] = "AA Missiles",
-                                                    [28] = "AG Missiles",
-                                                    [29] = "SA Missiles",
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                                [5] = {
-                                    ["number"] = 5,
+                                [6] = {
+                                    ["number"] = 6,
                                     ["auto"] = true,
                                     ["id"] = "WrappedAction",
                                     ["enabled"] = true,
@@ -238,11 +323,30 @@ function WE.EVENT.VIP_ESCORT()
                             },
                         },
                     },
-                    ["type"] = "Turning Point",
+                    ["type"] = "TakeOff",
                     ["ETA"] = 0,
                     ["ETA_locked"] = true,
-                    ["y"] = 26589.647053231,
-                    ["x"] = 13128.434149097,
+                    ["y"] = _depPoint.z,
+                    ["x"] = _depPoint.x,
+                    ["speed_locked"] = true,
+                    ["formation_template"] = "",
+                },
+                [2] = {
+                    ["alt"] = _destPoint.y,
+                    ["action"] = "Landing",
+                    ["alt_type"] = "BARO",
+                    ["speed"] = 220.97222222222,
+                    ["airdromeId"] = _destId,
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = {
+                            ["tasks"] = {},
+                        },
+                    },
+                    ["type"] = "Land",
+                    ["ETA_locked"] = false,
+                    ["y"] = _destPoint.z,
+                    ["x"] = _destPoint.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -250,7 +354,7 @@ function WE.EVENT.VIP_ESCORT()
         },
         ["units"] = {
             [1] = {
-                ["alt"] = 4572,
+                ["alt"] = _depPoint.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "Excellent",
@@ -262,8 +366,8 @@ function WE.EVENT.VIP_ESCORT()
                 ["unitId"] = WE.getNextUnitId(),
                 ["psi"] = 0,
                 ["onboard_num"] = "010",
-                ["y"] = 26589.647053231,
-                ["x"] = 13128.434149097,
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
                 ["name"] = "Aerial-2-1",
                 ["payload"] = {
                     ["pylons"] = {
@@ -284,7 +388,7 @@ function WE.EVENT.VIP_ESCORT()
                 ["callsign"] = 121,
             },
             [2] = {
-                ["alt"] = 4572,
+                ["alt"] = _depPoint.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -296,8 +400,8 @@ function WE.EVENT.VIP_ESCORT()
                 ["unitId"] = WE.getNextUnitId(),
                 ["psi"] = 0,
                 ["onboard_num"] = "011",
-                ["y"] = 26629.647053231,
-                ["x"] = 13088.434149097,
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
                 ["name"] = "Vip_Wing-1",
                 ["payload"] = {
                     ["pylons"] = {
@@ -318,7 +422,7 @@ function WE.EVENT.VIP_ESCORT()
                 ["callsign"] = 122,
             },
             [3] = {
-                ["alt"] = 4572,
+                ["alt"] = _depPoint.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -330,8 +434,8 @@ function WE.EVENT.VIP_ESCORT()
                 ["unitId"] = WE.getNextUnitId(),
                 ["psi"] = 0,
                 ["onboard_num"] = "012",
-                ["y"] = 26669.647053231,
-                ["x"] = 13048.434149097,
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
                 ["name"] = "Vip_Wing-2",
                 ["payload"] = {
                     ["pylons"] = {
@@ -352,7 +456,7 @@ function WE.EVENT.VIP_ESCORT()
                 ["callsign"] = 123,
             },
             [4] = {
-                ["alt"] = 4572,
+                ["alt"] = _depPoint.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -364,8 +468,8 @@ function WE.EVENT.VIP_ESCORT()
                 ["unitId"] = WE.getNextUnitId(),
                 ["psi"] = 0,
                 ["onboard_num"] = "013",
-                ["y"] = 26709.647053231,
-                ["x"] = 13008.434149097,
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
                 ["name"] = "Vip_Wing-3",
                 ["payload"] = {
                     ["pylons"] = {
@@ -386,8 +490,8 @@ function WE.EVENT.VIP_ESCORT()
                 ["callsign"] = 124,
             },
         },
-        ["y"] = 26589.647053231,
-        ["x"] = 13128.434149097,
+        ["y"] = _depPoint.z,
+        ["x"] = _depPoint.x,
         ["name"] = "Vip_Wing_fighter",
         ["communication"] = true,
         ["start_time"] = 0,
@@ -396,10 +500,9 @@ function WE.EVENT.VIP_ESCORT()
     }
 
     -- Spawn the VIP transport group (fixed-wing, so use AIRPLANE category, not HELICOPTER)
-    local transportGroupId = coalition.addGroup(country.id.RUSSIA, Group.Category.AIRPLANE, vipTransportGroup)
+    local transportGroupId = coalition.addGroup(WE.VIPCountry, Group.Category.AIRPLANE, vipTransportGroup)
     if transportGroupId then
         WE.logInfo("VIP Transport group spawned successfully with group ID: %s", tostring(transportGroupId))
-        trigger.action.outText("VIP Transport aircraft has been dispatched!", 10)
     else
         WE.logError("Failed to spawn VIP Transport group")
         trigger.action.outText("Failed to spawn VIP Transport aircraft", 10)
@@ -407,21 +510,32 @@ function WE.EVENT.VIP_ESCORT()
     end
 
     -- Spawn the fighter escort group
-    local fighterGroupId = coalition.addGroup(country.id.RUSSIA, Group.Category.AIRPLANE, vipFighterGroup)
+    local fighterGroupId = coalition.addGroup(WE.VIPCountry, Group.Category.AIRPLANE, vipFighterGroup)
     if fighterGroupId then
         WE.logInfo("VIP Fighter Escort group spawned successfully with group ID: %s", tostring(fighterGroupId))
-        trigger.action.outText("VIP Fighter Escort is airborne!", 10)
     else
         WE.logError("Failed to spawn VIP Fighter Escort group")
         trigger.action.outText("Failed to spawn VIP Fighter Escort", 10)
     end
 
-    -- Mark event as active
+    -- Mark event as active and remember the mission details for Event Status
     WE.is_active = 1
+    WE.currentVIPEvent = {
+        departure = _depName,
+        destination = _destName,
+        transportGroupId = transportGroupId,
+        fighterGroupId = fighterGroupId,
+    }
+
     WE.logInfo("VIP Wing event completed successfully - Transport ID: %s, Escort ID: %s",
         tostring(transportGroupId), tostring(fighterGroupId))
 
-    trigger.action.outText("VIP Wing mission is now active! Protect the VIP transport.", 15)
+    -- Communicate the airfields to all players so they know where to look
+    trigger.action.outText(
+        string.format(
+            "VIP Wing mission is active! A VIP transport with 4 fighter escorts is departing %s, bound for %s. Protect it or intercept it!",
+            _depName, _destName),
+        20)
 end
 
 -----------------[[ END OF event_vipwing.lua ]]-----------------
