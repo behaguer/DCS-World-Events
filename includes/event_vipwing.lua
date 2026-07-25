@@ -208,6 +208,17 @@ function WE.EVENT.VIP_ESCORT()
         ["frequency"] = 305,
     }
 
+    -- 10 NM rendezvous calculation (10 NM = 18,520 meters)
+    local _rendezvousDistMeters = 10 * 1852
+    local _dx = _destPoint.x - _depPoint.x
+    local _dz = _destPoint.z - _depPoint.z
+    local _totalDist = math.sqrt(_dx * _dx + _dz * _dz)
+
+    local _actualDist = math.min(_rendezvousDistMeters, _totalDist)
+    local _midX = _depPoint.x + (_dx / _totalDist) * _actualDist
+    local _midY = _depPoint.z + (_dz / _totalDist) * _actualDist
+    local _cruiseAlt = 6000 -- Operational altitude in meters (~20,000 ft)
+
     -- VIP Fighter Escort Group (unit data from static template group "Vip_Wing_fighter").
     -- Takes off from the same airfield and is tasked to escort the transport: stay
     -- close to it, but break off to engage any air threat within engagement range.
@@ -221,6 +232,7 @@ function WE.EVENT.VIP_ESCORT()
         ["route"] = {
             ["routeRelativeTOT"] = true,
             ["points"] = {
+                -- WAYPOINT 1: Takeoff / Departure Airfield
                 [1] = {
                     ["alt"] = _depPoint.y,
                     ["action"] = "From Runway",
@@ -239,11 +251,9 @@ function WE.EVENT.VIP_ESCORT()
                                     ["params"] = {
                                         ["groupId"] = _transportGroupId,
                                         ["lastWptIndexFlagChangedManually"] = false,
-                                        ["lastWptIndex"] = nil,
+                                        ["lastWptIndex"] = 3,
                                         ["engagementDistMax"] = WE.VIPEscortEngagementDistMax,
-                                        ["targetTypes"] = {
-                                            [1] = "Air",
-                                        },
+                                        ["targetTypes"] = { [1] = "Air" },
                                         ["position"] = { ["x"] = -200, ["y"] = 50, ["z"] = 300 },
                                     },
                                 },
@@ -254,12 +264,11 @@ function WE.EVENT.VIP_ESCORT()
                                     ["enabled"] = true,
                                     ["auto"] = true,
                                     ["params"] = {
-                                        ["targetTypes"] = {
-                                            [1] = "Air",
-                                        },
+                                        ["targetTypes"] = { [1] = "Air" },
                                         ["priority"] = 0,
                                     },
                                 },
+                                -- Fixed Option 1: ROE (Option.Air.val.ROE = 0) -> Open Fire (2)
                                 [3] = {
                                     ["number"] = 3,
                                     ["auto"] = true,
@@ -269,12 +278,13 @@ function WE.EVENT.VIP_ESCORT()
                                         ["action"] = {
                                             ["id"] = "Option",
                                             ["params"] = {
-                                                ["value"] = true,
-                                                ["name"] = 17,
+                                                ["name"] = 0, -- ROE
+                                                ["value"] = 2, -- Open Fire
                                             },
                                         },
                                     },
                                 },
+                                -- Fixed Option 2: Reaction To Threat (Option.Air.val.REACTION_ON_THREAT = 1) -> Evade Fire (4)
                                 [4] = {
                                     ["number"] = 4,
                                     ["auto"] = true,
@@ -284,12 +294,13 @@ function WE.EVENT.VIP_ESCORT()
                                         ["action"] = {
                                             ["id"] = "Option",
                                             ["params"] = {
-                                                ["value"] = 4,
-                                                ["name"] = 18,
+                                                ["name"] = 1, -- Reaction To Threat
+                                                ["value"] = 4, -- Evade Fire
                                             },
                                         },
                                     },
                                 },
+                                -- Fixed Option 3: Radar Using (Option.Air.val.RADAR_USING = 16) -> Continuous (1)
                                 [5] = {
                                     ["number"] = 5,
                                     ["auto"] = true,
@@ -299,12 +310,13 @@ function WE.EVENT.VIP_ESCORT()
                                         ["action"] = {
                                             ["id"] = "Option",
                                             ["params"] = {
-                                                ["value"] = true,
-                                                ["name"] = 19,
+                                                ["name"] = 16, -- Radar Using
+                                                ["value"] = 1,  -- Continuous Readout
                                             },
                                         },
                                     },
                                 },
+                                -- Fixed Option 4: Prohibit Jettison (Option.Air.val.PROHIBIT_JETT = 22) -> true
                                 [6] = {
                                     ["number"] = 6,
                                     ["auto"] = true,
@@ -314,8 +326,8 @@ function WE.EVENT.VIP_ESCORT()
                                         ["action"] = {
                                             ["id"] = "Option",
                                             ["params"] = {
+                                                ["name"] = 22, -- Prohibit Jettison
                                                 ["value"] = true,
-                                                ["name"] = 35,
                                             },
                                         },
                                     },
@@ -331,7 +343,27 @@ function WE.EVENT.VIP_ESCORT()
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
+                -- WAYPOINT 2: 10 NM Rendezvous / Join Point
                 [2] = {
+                    ["alt"] = _cruiseAlt,
+                    ["action"] = "Turning Point",
+                    ["alt_type"] = "BARO",
+                    ["speed"] = 220.97222222222,
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = {
+                            ["tasks"] = {},
+                        },
+                    },
+                    ["type"] = "Turning Point",
+                    ["ETA_locked"] = false,
+                    ["y"] = _midY,
+                    ["x"] = _midX,
+                    ["speed_locked"] = true,
+                    ["formation_template"] = "",
+                },
+                -- WAYPOINT 3: Landing Destination Airfield
+                [3] = {
                     ["alt"] = _destPoint.y,
                     ["action"] = "Landing",
                     ["alt_type"] = "BARO",
