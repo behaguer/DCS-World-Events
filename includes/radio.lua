@@ -133,7 +133,8 @@ function WE.spawnEventMenuAction()
     -- Trigger the VIP_ESCORT event
 
     WE.EVENT.VIP_ESCORT()
-
+    trigger.action.outSound("vip-enroute.wav")
+    
     WE.logInfo("World Event spawned via radio menu")
 end
 

@@ -1381,7 +1381,7 @@ function WE.spawnEventMenuAction()
 
     WE.EVENT.VIP_ESCORT()
     trigger.action.outSound("vip-enroute.wav")
-
+    
     WE.logInfo("World Event spawned via radio menu")
 end
 
@@ -1812,6 +1812,21 @@ function WE.EVENT.VIP_ESCORT()
         ["frequency"] = 305,
     }
 
+    -- Spawn the transport now and capture its ACTUAL DCS-assigned group id, to use
+    -- in the escort task below. Our own requested id (_transportGroupId, from
+    -- WE.getNextGroupId()) is only a hint - if that number is already used by any
+    -- other group already in the mission, DCS silently assigns a different real id
+    -- instead. Escorting the wrong (nonexistent) id is why the fighters couldn't
+    -- find anything to escort and just orbited the departure airfield after takeoff.
+    local transportGroupObj = coalition.addGroup(WE.VIPCountry, Group.Category.AIRPLANE, vipTransportGroup)
+    if not transportGroupObj then
+        WE.logError("Failed to spawn VIP Transport group")
+        trigger.action.outText("Failed to spawn VIP Transport aircraft", 10)
+        return
+    end
+    local _actualTransportGroupId = transportGroupObj:getID()
+    WE.logInfo("VIP Transport group spawned successfully with actual group ID: %s", tostring(_actualTransportGroupId))
+
     -- 10 NM rendezvous calculation (10 NM = 18,520 meters)
     local _rendezvousDistMeters = 10 * 1852
     local _dx = _destPoint.x - _depPoint.x
@@ -1853,12 +1868,12 @@ function WE.EVENT.VIP_ESCORT()
                                     ["id"] = "Escort",
                                     ["enabled"] = true,
                                     ["params"] = {
-                                        ["groupId"] = _transportGroupId,
+                                        ["groupId"] = _actualTransportGroupId,
                                         ["lastWptIndexFlagChangedManually"] = false,
                                         ["lastWptIndex"] = 3,
                                         ["engagementDistMax"] = WE.VIPEscortEngagementDistMax,
                                         ["targetTypes"] = { [1] = "Air" },
-                                        ["position"] = { ["x"] = -200, ["y"] = 50, ["z"] = 300 },
+                                        ["pos"] = { ["x"] = -200, ["y"] = 50, ["z"] = 300 },
                                     },
                                 },
                                 [2] = {
@@ -2135,16 +2150,6 @@ function WE.EVENT.VIP_ESCORT()
         ["frequency"] = 124,
     }
 
-    -- Spawn the VIP transport group (fixed-wing, so use AIRPLANE category, not HELICOPTER)
-    local transportGroupId = coalition.addGroup(WE.VIPCountry, Group.Category.AIRPLANE, vipTransportGroup)
-    if transportGroupId then
-        WE.logInfo("VIP Transport group spawned successfully with group ID: %s", tostring(transportGroupId))
-    else
-        WE.logError("Failed to spawn VIP Transport group")
-        trigger.action.outText("Failed to spawn VIP Transport aircraft", 10)
-        return
-    end
-
     -- Spawn the fighter escort group
     local fighterGroupId = coalition.addGroup(WE.VIPCountry, Group.Category.AIRPLANE, vipFighterGroup)
     if fighterGroupId then
@@ -2159,20 +2164,59 @@ function WE.EVENT.VIP_ESCORT()
     WE.currentVIPEvent = {
         departure = _depName,
         destination = _destName,
-        transportGroupId = transportGroupId,
+        transportGroupId = _actualTransportGroupId,
         fighterGroupId = fighterGroupId,
     }
 
     WE.logInfo("VIP Wing event completed successfully - Transport ID: %s, Escort ID: %s",
-        tostring(transportGroupId), tostring(fighterGroupId))
+        tostring(_actualTransportGroupId), tostring(fighterGroupId))
 
     -- Communicate the airfields to all players so they know where to look
     trigger.action.outText(
         string.format(
-            "VIP Wing mission is active! A VIP transport with 4 fighter escorts is departing %s, bound for %s. Protect it or intercept it!",
+            "VIP Wing mission is active! A VIP transport with 4 fighter escorts is departing %s, bound for %s. intercept it!",
             _depName, _destName),
         20)
 end
+
+-- Create a table to hold our custom event handler
+WE.EVENT.VIPWING = {}
+
+-- Define the function that DCS calls every time ANY event happens in the world
+function WE.EVENT.VIPWING:onEvent(event)
+    -- Check if the event has a valid initiator (the unit causing the event)
+    if not event.initiator then return end
+    
+    -- Optimize by getting the unit's name up front
+    if event.initiator.getName and type(event.initiator.getName) == "function" then
+        local unitName = event.initiator:getName()
+        WE.logInfo("Event received: %s, Unit: %s", tostring(event.id), tostring(unitName))
+        
+        if unitName == "RSD381 VIP" then
+        
+            -- Scenario 1: Plane is destroyed
+            if event.id == world.event.S_EVENT_CRASH then
+                trigger.action.outText("SUCCESS: The target aircraft has been completely destroyed!", 10)
+                -- Add your custom logic for success here ( Award points, trigger next event, etc. )
+                
+            -- Scenario 2: Plane lands safely
+            elseif event.id == world.event.S_EVENT_LAND then
+                trigger.action.outText("INFO: The target aircraft has touched down safely get to him before he finishes taxiing!", 5)
+                
+            -- Scenario 3: Plane shuts down engines after landing
+            elseif event.id == world.event.S_EVENT_ENGINE_SHUTDOWN then
+                trigger.action.outText("FAILED: The aircraft has landed and shut down engines. Mission Falure!", 10)
+                -- Add your custom logic for failure here
+            end
+            
+        end
+    else
+        WE.logWarning("Event received: %s, but initiator has no valid getName method", tostring(event.id))
+    end
+end
+
+-- Register the handler with the DCS world engine so it starts listening
+world.addEventHandler(WE.EVENT.VIPWING)
 
 -----------------[[ END OF event_vipwing.lua ]]-----------------
 -----------------[[ init.lua ]]-----------------
