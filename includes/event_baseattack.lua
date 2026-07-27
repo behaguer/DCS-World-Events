@@ -112,33 +112,105 @@ function WE.EVENT.BASE_ATTACK()
 
     WE.logInfo("Spawning Base Attack Wing groups...")
 
-    -- Reserve the transport's groups id up front
+    -- Reserve the CAS group's id up front (used as a hint - see the real id capture below)
     local _attackCASGroupId = WE.getNextGroupId()
-    local _attackEscortGroupId = WE.getNextGroupId()
 
-    -- Base Attack CAS Group (unit data from static template group "Attack_CAS").
-    -- This group is tasked to fly from the departure airfield to the destination airfield, and will engage any blue ground targets that come within engagement range.
+    -- Operational altitude in meters for the transit/attack waypoint
+    local _cruiseAlt = 2000
+
+    -- Base Attack CAS Group ("ShAP" - 3x Su-25, livery/loadout from the exported
+    -- shap.stm static template). Route: take off from the departure (red) airfield,
+    -- attack the destination (blue) airfield, then land back at the SAME airfield
+    -- they took off from.
+
     local attackCASGroup = {
         ["modulation"] = 0,
         ["tasks"] = {},
-        ["task"] = "Transport",
+        ["task"] = "CAS",
         ["uncontrolled"] = false,
         ["taskSelected"] = true,
         ["hidden"] = false,
         ["route"] = {
             ["points"] = {
+                -- WAYPOINT 1: Takeoff / Departure (red) Airfield
                 [1] = {
                     ["alt"] = _depPoint.y,
                     ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
-                    ["speed"] = 154.16666666667,
+                    ["speed"] = 138.88888888889,
                     ["airdromeId"] = _depId,
                     ["task"] = {
                         ["id"] = "ComboTask",
                         ["params"] = {
                             ["tasks"] = {
+                                -- Engage anything threatening en route (from the exported template)
                                 [1] = {
                                     ["number"] = 1,
+                                    ["key"] = "CAS",
+                                    ["id"] = "EngageTargets",
+                                    ["enabled"] = true,
+                                    ["auto"] = true,
+                                    ["params"] = {
+                                        ["targetTypes"] = {
+                                            [1] = "Helicopters",
+                                            [2] = "Ground Units",
+                                            [3] = "Light armed ships",
+                                        },
+                                        ["priority"] = 0,
+                                    },
+                                },
+                                -- ROE -> Open Fire
+                                [2] = {
+                                    ["number"] = 2,
+                                    ["auto"] = true,
+                                    ["id"] = "WrappedAction",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["action"] = {
+                                            ["id"] = "Option",
+                                            ["params"] = { ["value"] = 2, ["name"] = 1 },
+                                        },
+                                    },
+                                },
+                                -- Reaction To Threat -> Evade Fire
+                                [3] = {
+                                    ["number"] = 3,
+                                    ["auto"] = true,
+                                    ["id"] = "WrappedAction",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["action"] = {
+                                            ["id"] = "Option",
+                                            ["params"] = { ["value"] = 1, ["name"] = 3 },
+                                        },
+                                    },
+                                },
+                                [4] = {
+                                    ["number"] = 4,
+                                    ["auto"] = true,
+                                    ["id"] = "WrappedAction",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["action"] = {
+                                            ["id"] = "Option",
+                                            ["params"] = { ["value"] = 131074, ["name"] = 5 },
+                                        },
+                                    },
+                                },
+                                [5] = {
+                                    ["number"] = 5,
+                                    ["auto"] = true,
+                                    ["id"] = "WrappedAction",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["action"] = {
+                                            ["id"] = "Option",
+                                            ["params"] = { ["value"] = true, ["name"] = 15 },
+                                        },
+                                    },
+                                },
+                                [6] = {
+                                    ["number"] = 6,
                                     ["auto"] = true,
                                     ["id"] = "WrappedAction",
                                     ["enabled"] = true,
@@ -146,9 +218,46 @@ function WE.EVENT.BASE_ATTACK()
                                         ["action"] = {
                                             ["id"] = "Option",
                                             ["params"] = {
-                                                ["value"] = true,
-                                                ["name"] = 35,
+                                                ["targetTypes"] = {},
+                                                ["name"] = 21,
+                                                ["value"] = "none;",
+                                                ["noTargetTypes"] = {
+                                                    [1] = "Fighters", [2] = "Multirole fighters", [3] = "Bombers",
+                                                    [4] = "Helicopters", [5] = "UAVs", [6] = "Infantry",
+                                                    [7] = "Fortifications", [8] = "Tanks", [9] = "IFV", [10] = "APC",
+                                                    [11] = "Artillery", [12] = "Unarmed vehicles", [13] = "AAA",
+                                                    [14] = "SR SAM", [15] = "MR SAM", [16] = "LR SAM",
+                                                    [17] = "Aircraft Carriers", [18] = "Cruisers", [19] = "Destroyers",
+                                                    [20] = "Frigates", [21] = "Corvettes", [22] = "Light armed ships",
+                                                    [23] = "Unarmed ships", [24] = "Submarines", [25] = "Cruise missiles",
+                                                    [26] = "Antiship Missiles", [27] = "AA Missiles", [28] = "AG Missiles",
+                                                    [29] = "SA Missiles",
+                                                },
                                             },
+                                        },
+                                    },
+                                },
+                                [7] = {
+                                    ["number"] = 7,
+                                    ["auto"] = true,
+                                    ["id"] = "WrappedAction",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["action"] = {
+                                            ["id"] = "Option",
+                                            ["params"] = { ["value"] = true, ["name"] = 19 },
+                                        },
+                                    },
+                                },
+                                [8] = {
+                                    ["number"] = 8,
+                                    ["auto"] = true,
+                                    ["id"] = "WrappedAction",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["action"] = {
+                                            ["id"] = "Option",
+                                            ["params"] = { ["value"] = true, ["name"] = 35 },
                                         },
                                     },
                                 },
@@ -163,12 +272,49 @@ function WE.EVENT.BASE_ATTACK()
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
+                -- WAYPOINT 2: Attack the blue base (target mission - bomb the airfield)
                 [2] = {
-                    ["alt"] = _destPoint.y,
+                    ["alt"] = _cruiseAlt,
+                    ["action"] = "Turning Point",
+                    ["alt_type"] = "BARO",
+                    ["speed"] = 138.88888888889,
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = {
+                            ["tasks"] = {
+                                [1] = {
+                                    ["number"] = 1,
+                                    ["auto"] = false,
+                                    ["id"] = "Bombing",
+                                    ["enabled"] = true,
+                                    ["params"] = {
+                                        ["point"] = { ["x"] = _destPoint.x, ["y"] = _destPoint.z },
+                                        ["x"] = _destPoint.x,
+                                        ["y"] = _destPoint.z,
+                                        ["groupAttack"] = true,
+                                        ["attackQtyLimit"] = false,
+                                        ["expend"] = "All",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    ["type"] = "Turning Point",
+                    ["ETA_locked"] = false,
+                    ["y"] = _destPoint.z,
+                    ["x"] = _destPoint.x,
+                    ["speed_locked"] = true,
+                    ["formation_template"] = "",
+                },
+                -- WAYPOINT 3: Land back at the SAME (departure/red) airfield after the
+                -- attack. DCS AI will divert to RTB earlier on its own if fuel runs low
+                -- before reaching this point, so no extra bingo-fuel scripting is needed.
+                [3] = {
+                    ["alt"] = _depPoint.y,
                     ["action"] = "Landing",
                     ["alt_type"] = "BARO",
-                    ["speed"] = 154.16666666667,
-                    ["airdromeId"] = _destId,
+                    ["speed"] = 138.88888888889,
+                    ["airdromeId"] = _depId,
                     ["task"] = {
                         ["id"] = "ComboTask",
                         ["params"] = {
@@ -177,8 +323,8 @@ function WE.EVENT.BASE_ATTACK()
                     },
                     ["type"] = "Land",
                     ["ETA_locked"] = false,
-                    ["y"] = _destPoint.z,
-                    ["x"] = _destPoint.x,
+                    ["y"] = _depPoint.z,
+                    ["x"] = _depPoint.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -188,41 +334,113 @@ function WE.EVENT.BASE_ATTACK()
             [1] = {
                 ["alt"] = _depPoint.y,
                 ["alt_type"] = "BARO",
-                ["livery_id"] = "iqaf 23rd sqn, new al muthana air base",
-                ["skill"] = "Excellent",
-                ["speed"] = 154.16666666667,
-                ["AddPropAircraft"] = {
-                    ["allow_air_load"] = false,
-                    ["pre_flight_complete"] = false,
-                    ["save_custom_data"] = true,
-                    ["ramp_down"] = false,
-                    ["allow_moab"] = true,
-                },
-                ["type"] = "C-130J-30",
+                ["livery_id"] = "field camo scheme #2 (native). 960th shap",
+                ["skill"] = "High",
+                ["speed"] = 138.88888888889,
+                ["type"] = "Su-25",
                 ["unitId"] = WE.getNextUnitId(),
                 ["psi"] = 0,
-                ["onboard_num"] = "014",
+                ["onboard_num"] = "010",
                 ["y"] = _depPoint.z,
                 ["x"] = _depPoint.x,
-                ["name"] = "RSD381 VIP",
+                ["name"] = "Grif-1-1",
                 ["payload"] = {
-                    ["pylons"] = {},
-                    ["fuel"] = 15753.6,
-                    ["flare"] = 200,
-                    ["chaff"] = 220,
+                    ["pylons"] = {
+                        [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
+                        [2] = { ["CLSID"] = "{0180F983-C14A-11d8-9897-000476191836}" },
+                        [3] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [4] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [5] = { ["CLSID"] = "{D4A8D9B9-5C45-42e7-BBD2-0E54F8308432}" },
+                        [6] = { ["CLSID"] = "{D4A8D9B9-5C45-42e7-BBD2-0E54F8308432}" },
+                        [7] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [8] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [9] = { ["CLSID"] = "{0180F983-C14A-11d8-9897-000476191836}" },
+                        [10] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
+                    },
+                    ["fuel"] = 2835,
+                    ["flare"] = 128,
+                    ["chaff"] = 128,
                     ["gun"] = 100,
                 },
                 ["heading"] = 0,
-                ["callsign"] = 126,
+                ["callsign"] = 103,
+            },
+            [2] = {
+                ["alt"] = _depPoint.y,
+                ["alt_type"] = "BARO",
+                ["livery_id"] = "field camo scheme #2 (native). 960th shap",
+                ["skill"] = "High",
+                ["speed"] = 138.88888888889,
+                ["type"] = "Su-25",
+                ["unitId"] = WE.getNextUnitId(),
+                ["psi"] = 0,
+                ["onboard_num"] = "011",
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
+                ["name"] = "Grif-1-2",
+                ["payload"] = {
+                    ["pylons"] = {
+                        [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
+                        [2] = { ["CLSID"] = "{0180F983-C14A-11d8-9897-000476191836}" },
+                        [3] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [4] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [5] = { ["CLSID"] = "{D4A8D9B9-5C45-42e7-BBD2-0E54F8308432}" },
+                        [6] = { ["CLSID"] = "{D4A8D9B9-5C45-42e7-BBD2-0E54F8308432}" },
+                        [7] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [8] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [9] = { ["CLSID"] = "{0180F983-C14A-11d8-9897-000476191836}" },
+                        [10] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
+                    },
+                    ["fuel"] = 2835,
+                    ["flare"] = 128,
+                    ["chaff"] = 128,
+                    ["gun"] = 100,
+                },
+                ["heading"] = 0,
+                ["callsign"] = 104,
+            },
+            [3] = {
+                ["alt"] = _depPoint.y,
+                ["alt_type"] = "BARO",
+                ["livery_id"] = "field camo scheme #2 (native). 960th shap",
+                ["skill"] = "High",
+                ["speed"] = 138.88888888889,
+                ["type"] = "Su-25",
+                ["unitId"] = WE.getNextUnitId(),
+                ["psi"] = 0,
+                ["onboard_num"] = "012",
+                ["y"] = _depPoint.z,
+                ["x"] = _depPoint.x,
+                ["name"] = "Grif-1-3",
+                ["payload"] = {
+                    ["pylons"] = {
+                        [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
+                        [2] = { ["CLSID"] = "{0180F983-C14A-11d8-9897-000476191836}" },
+                        [3] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [4] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [5] = { ["CLSID"] = "{D4A8D9B9-5C45-42e7-BBD2-0E54F8308432}" },
+                        [6] = { ["CLSID"] = "{D4A8D9B9-5C45-42e7-BBD2-0E54F8308432}" },
+                        [7] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [8] = { ["CLSID"] = "{79D73885-0801-45a9-917F-C90FE1CE3DFC}" },
+                        [9] = { ["CLSID"] = "{0180F983-C14A-11d8-9897-000476191836}" },
+                        [10] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
+                    },
+                    ["fuel"] = 2835,
+                    ["flare"] = 128,
+                    ["chaff"] = 128,
+                    ["gun"] = 100,
+                },
+                ["heading"] = 0,
+                ["callsign"] = 105,
             },
         },
         ["y"] = _depPoint.z,
         ["x"] = _depPoint.x,
-        ["name"] = "Vip_Transport",
+        ["name"] = "ShAP",
         ["communication"] = true,
         ["start_time"] = 0,
-        ["groupId"] = _transportGroupId,
-        ["frequency"] = 305,
+        ["groupId"] = _attackCASGroupId,
+        ["frequency"] = 124,
     }
 
     local attackCASGroupObj = coalition.addGroup(WE.AttackerCountry, Group.Category.AIRPLANE, attackCASGroup)
@@ -282,7 +500,7 @@ function WE.EVENT.BASE_ATTACK()
                                         ["lastWptIndex"] = 3,
                                         ["engagementDistMax"] = WE.VIPEscortEngagementDistMax,
                                         ["targetTypes"] = { [1] = "Air" },
-                                        ["pos"] = { ["x"] = -200, ["y"] = 50, ["z"] = 300 },
+                                        ["pos"] = { ["x"] = -200, ["y"] = 250, ["z"] = 300 },
                                     },
                                 },
                                 [2] = {
@@ -428,7 +646,7 @@ function WE.EVENT.BASE_ATTACK()
                 ["onboard_num"] = "010",
                 ["y"] = _depPoint.z,
                 ["x"] = _depPoint.x,
-                ["name"] = "Aerial-2-1",
+                ["name"] = "Sokol-21",
                 ["payload"] = {
                     ["pylons"] = {
                         [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
@@ -462,7 +680,7 @@ function WE.EVENT.BASE_ATTACK()
                 ["onboard_num"] = "011",
                 ["y"] = _depPoint.z,
                 ["x"] = _depPoint.x,
-                ["name"] = "Vip_Wing-1",
+                ["name"] = "Sokol-22",
                 ["payload"] = {
                     ["pylons"] = {
                         [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
@@ -496,7 +714,7 @@ function WE.EVENT.BASE_ATTACK()
                 ["onboard_num"] = "012",
                 ["y"] = _depPoint.z,
                 ["x"] = _depPoint.x,
-                ["name"] = "Vip_Wing-2",
+                ["name"] = "Sokol-23",
                 ["payload"] = {
                     ["pylons"] = {
                         [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
@@ -530,7 +748,7 @@ function WE.EVENT.BASE_ATTACK()
                 ["onboard_num"] = "013",
                 ["y"] = _depPoint.z,
                 ["x"] = _depPoint.x,
-                ["name"] = "Vip_Wing-3",
+                ["name"] = "Sokol-24",
                 ["payload"] = {
                     ["pylons"] = {
                         [1] = { ["CLSID"] = "{682A481F-0CB5-4693-A382-D00DD4A156D7}" },
@@ -552,7 +770,7 @@ function WE.EVENT.BASE_ATTACK()
         },
         ["y"] = _depPoint.z,
         ["x"] = _depPoint.x,
-        ["name"] = "Vip_Wing_fighter",
+        ["name"] = "Sokol_Fighter_Wing",
         ["communication"] = true,
         ["start_time"] = 0,
         ["groupId"] = WE.getNextGroupId(),
