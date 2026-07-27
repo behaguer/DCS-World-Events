@@ -6,4 +6,5 @@ utility.lua
 radio.lua
 event.lua
 event_vipwing.lua
+event_baseattack.lua
 init.lua
