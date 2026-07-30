@@ -21,21 +21,7 @@ WE.currentVIPEvent = nil
 --- Get all currently red-owned airdrome-category airbases (excludes ships/FARPs/helipads)
 --- @return table list of Airbase objects
 function WE.getRedAirdromes()
-    local _airdromes = {}
-    local _bases = coalition.getAirbases(coalition.side.RED)
-
-    if _bases then
-        for _, _base in pairs(_bases) do
-            if _base and _base:isExist() then
-                local _desc = _base:getDesc()
-                if _desc and _desc.category == Airbase.Category.AIRDROME then
-                    table.insert(_airdromes, _base)
-                end
-            end
-        end
-    end
-
-    return _airdromes
+    return WE.getAirdromes('red')
 end
 
 --- Pick two different random red airdromes to use as departure and destination
@@ -229,6 +215,8 @@ function WE.EVENT.VIP_ESCORT()
     local _midX = _depPoint.x + (_dx / _totalDist) * _actualDist
     local _midY = _depPoint.z + (_dz / _totalDist) * _actualDist
     local _cruiseAlt = 6000 -- Operational altitude in meters (~20,000 ft)
+    local _midTerrainHeight = land.getHeight({ x = _midX, y = _midY })
+    local _safeCruiseAlt = math.max(_cruiseAlt, _midTerrainHeight + 500)
 
     -- VIP Fighter Escort Group (unit data from static template group "Vip_Wing_fighter").
     -- Takes off from the same airfield and is tasked to escort the transport: stay
@@ -356,7 +344,7 @@ function WE.EVENT.VIP_ESCORT()
                 },
                 -- WAYPOINT 2: 10 NM Rendezvous / Join Point
                 [2] = {
-                    ["alt"] = _cruiseAlt,
+                    ["alt"] = _safeCruiseAlt,
                     ["action"] = "Turning Point",
                     ["alt_type"] = "BARO",
                     ["speed"] = 220.97222222222,

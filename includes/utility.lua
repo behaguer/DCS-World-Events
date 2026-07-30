@@ -132,6 +132,39 @@ WE.getNextGroupId = function()
     return WE.nextGroupId
 end
 
+--- Get all currently airdrome-category airbases (excludes ships/FARPs/helipads)
+--- @side 'red' or 'blue'
+--- @return table list of Airbase objects
+function WE.getAirdromes(side)
+    local _airdromes = {}
+
+    if side == nil then
+        side = coalition.side.RED
+    elseif side == 'red' then
+        side = coalition.side.RED
+    elseif side == 'blue' then
+        side = coalition.side.BLUE
+    else
+        WE.logWarning("getRedAirdromes: invalid side '%s', defaulting to RED", tostring(side))
+        side = coalition.side.RED
+    end
+
+    local _bases = coalition.getAirbases(side)
+
+    if _bases then
+        for _, _base in pairs(_bases) do
+            if _base and _base:isExist() then
+                local _desc = _base:getDesc()
+                if _desc and _desc.category == Airbase.Category.AIRDROME then
+                    table.insert(_airdromes, _base)
+                end
+            end
+        end
+    end
+
+    return _airdromes
+end
+
 --- Get transport unit by name if active and alive
 --- @param _unitName string name of the transport unit
 --- @return Unit|nil transport unit object if active and alive, otherwise nil

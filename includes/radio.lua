@@ -208,8 +208,12 @@ function WE.showEventStatusAction()
     if WE.is_active == 1 then
         statusMessage = "World Event Status: ACTIVE\n\nAn event is currently running. Check the F10 map for event details."
         if WE.currentVIPEvent then
-            statusMessage = statusMessage .. string.format("\n\nVIP Wing: departed %s, en route to %s.",
+            statusMessage = statusMessage .. string.format("\n\nVIP Escort: departed %s, en route to %s.",
                 tostring(WE.currentVIPEvent.departure), tostring(WE.currentVIPEvent.destination))
+        end
+        if WE.currentBaseAttackEvent then
+            statusMessage = statusMessage .. string.format("\n\nBase Attack: departed %s, attacking %s.",
+                tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
         end
     else
         statusMessage = "World Event Status: INACTIVE\n\nNo events are currently active. Use 'Spawn Event' to start a new event."

@@ -263,21 +263,10 @@ yourself; otherwise it's safe to ignore (or delete) for now.
 
 ## Known limitations / TODO
 
-- **`Event Status` only reports VIP Escort.** `WE.showEventStatusAction`
-  checks `WE.currentVIPEvent` but never `WE.currentBaseAttackEvent`, so
-  running a Base Attack shows "ACTIVE" with no departure/destination detail.
-- **The per-event outcome handlers are placeholders.** Both
-  `WE.EVENT.VIPWING:onEvent` and `WE.EVENT.BASEATTACK:onEvent` check for a
-  hardcoded unit name, `"RSD381 VIP"`, that doesn't match any unit actually
-  spawned by either event (VIP Escort's transport unit is `"Aerial-2-2"` in
-  group `"Vip_Transport"`; Base Attack's CAS group is `"ShAP"`). As written,
-  these handlers never fire. `BASEATTACK:onEvent` also has an explicit
-  `-- TODO` noting it needs to check for destruction of the **whole** CAS
-  group rather than a single unit.
-- **Duplicate airfield-picking logic.** VIP Escort has its own
-  `WE.getRedAirdromes()`/`WE.pickVIPAirfields()`, while Base Attack has a
-  more general `WE.getAirdromes(side)`/`WE.pickAirfields()`. Worth
-  consolidating onto the more general pair.
+- **`WE.EVENT.VIPWING:onEvent` is still a placeholder.** It checks for a
+  hardcoded unit name `"RSD381 VIP"` that doesn't match any unit actually
+  spawned by VIP Escort (the transport unit is `"Aerial-2-2"`). As written,
+  this handler never fires.
 - **Shared `is_active` flag.** Both events use the same `WE.is_active`, so
   by design only one world event (of either type) can run at a time —
   confirm that's still the intended behaviour now there are two events.
