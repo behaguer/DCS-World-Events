@@ -117,6 +117,8 @@ function WE.EVENT.BASE_ATTACK()
 
     -- Operational altitude in meters for the transit/attack waypoint
     local _cruiseAlt = 2000
+    local _maxTerrainHeight = WE.getMaxTerrainHeight(_depPoint.x, _depPoint.z, _destPoint.x, _destPoint.z, 5)
+    local _safeCruiseAlt = math.max(_cruiseAlt, _maxTerrainHeight + 500)
 
     -- Base Attack CAS Group ("ShAP" - 3x Su-25, livery/loadout from the exported
     -- shap.stm static template). Route: take off from the departure (red) airfield,
@@ -274,7 +276,7 @@ function WE.EVENT.BASE_ATTACK()
                 },
                 -- WAYPOINT 2: Attack the blue base (target mission - bomb the airfield)
                 [2] = {
-                    ["alt"] = _cruiseAlt,
+                    ["alt"] = _safeCruiseAlt,
                     ["action"] = "Turning Point",
                     ["alt_type"] = "BARO",
                     ["speed"] = 138.88888888889,
@@ -464,6 +466,8 @@ function WE.EVENT.BASE_ATTACK()
     local _midX = _depPoint.x + (_dx / _totalDist) * _actualDist
     local _midY = _depPoint.z + (_dz / _totalDist) * _actualDist
     local _cruiseAlt = 6000 -- Operational altitude in meters (~20,000 ft)
+    local _maxTerrainHeight = WE.getMaxTerrainHeight(_depPoint.x, _depPoint.z, _midX, _midY, 5)
+    local _safeCruiseAlt = math.max(_cruiseAlt, _maxTerrainHeight + 500)
 
     -- Attack Fighter Escort Group (unit data from static template group "Vip_Wing_fighter").
     -- Takes off from the same airfield and is tasked to escort the transport: stay
@@ -591,7 +595,7 @@ function WE.EVENT.BASE_ATTACK()
                 },
                 -- WAYPOINT 2: 10 NM Rendezvous / Join Point
                 [2] = {
-                    ["alt"] = _cruiseAlt,
+                    ["alt"] = _safeCruiseAlt,
                     ["action"] = "Turning Point",
                     ["alt_type"] = "BARO",
                     ["speed"] = 220.97222222222,
@@ -812,35 +816,60 @@ WE.EVENT.BASEATTACK = {}
 
 -- Define the function that DCS calls every time ANY event happens in the world
 function WE.EVENT.BASEATTACK:onEvent(event)
-    -- Check if the event has a valid initiator (the unit causing the event)
+    if not event then return end
+    if not WE.is_active or WE.is_active ~= 1 then return end
     if not event.initiator then return end
-    
-    -- Optimize by getting the unit's name up front
-    if event.initiator.getName and type(event.initiator.getName) == "function" then
-        local unitName = event.initiator:getName()
-        WE.logInfo("Event received: %s, Unit: %s", tostring(event.id), tostring(unitName))
-        
-        -- TODO: WE need to change this to check for the destruction of the whole CAS group.
-        if unitName == "RSD381 VIP" then
-        
-            -- Scenario 1: Plane is destroyed
-            if event.id == world.event.S_EVENT_CRASH then
-                trigger.action.outText("SUCCESS: The attacking aircraft have been completely destroyed!", 10)
-                -- Add your custom logic for success here ( Award points, trigger next event, etc. )
-                
-            -- Scenario 2: Attacking Planes lands safely
-            elseif event.id == world.event.S_EVENT_LAND then
-                trigger.action.outText("INFO: The attacking aircraft have touched down safely.", 5)
-                
-            -- Scenario 3: Plane shuts down engines after landing
-            elseif event.id == world.event.S_EVENT_ENGINE_SHUTDOWN then
-                trigger.action.outText("FAILED: The attacking aircraft has landed and shut down engines. Mission Failure!", 10)
-                -- Add your custom logic for failure here
+
+    if event.id ~= world.event.S_EVENT_DEAD then return end
+
+    local _unit = event.initiator
+    if not _unit.getName or type(_unit.getName) ~= "function" then return end
+
+    local _unitGroup = _unit:getGroup()
+    if not _unitGroup then return end
+    if not _unitGroup:isExist() then return end
+
+    local _eventData = WE.currentBaseAttackEvent
+    if not _eventData then return end
+
+    -- Only care about units from our spawned groups
+    local _unitGroupId = _unitGroup:getID()
+    if _unitGroupId ~= _eventData.attackCASGroupGroupId and _unitGroupId ~= _eventData.fighterGroupId then
+        return
+    end
+
+    WE.logInfo("Base Attack: unit %s destroyed, checking if all aircraft are eliminated", _unit:getName())
+
+    -- Check if every unit in both spawned groups is dead
+    local _allDead = true
+
+    local _casGroup = Group.getByName("ShAP")
+    if _casGroup and _casGroup:isExist() then
+        local _units = _casGroup:getUnits()
+        for _, _u in pairs(_units) do
+            if _u:getLife() > 0 then
+                _allDead = false
+                break
             end
-            
         end
-    else
-        WE.logWarning("Event received: %s, but initiator has no valid getName method", tostring(event.id))
+    end
+
+    local _fighterGroup = Group.getByName("Sokol_Fighter_Wing")
+    if _fighterGroup and _fighterGroup:isExist() then
+        local _units = _fighterGroup:getUnits()
+        for _, _u in pairs(_units) do
+            if _u:getLife() > 0 then
+                _allDead = false
+                break
+            end
+        end
+    end
+
+    if _allDead then
+        trigger.action.outText("SUCCESS: All attacking CAS and escort aircraft have been destroyed! The base is safe!", 10)
+        WE.is_active = 0
+        WE.currentBaseAttackEvent = nil
+        WE.logInfo("Base Attack event completed successfully - all aircraft destroyed")
     end
 end
 

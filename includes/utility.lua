@@ -165,6 +165,28 @@ function WE.getAirdromes(side)
     return _airdromes
 end
 
+--- Sample terrain height at evenly spaced points along a line and return the maximum.
+--- @param x1 number start x
+--- @param z1 number start z
+--- @param x2 number end x
+--- @param z2 number end z
+--- @param numSamples number of sample points (default 5)
+--- @return number maximum terrain height found across all samples
+function WE.getMaxTerrainHeight(x1, z1, x2, z2, numSamples)
+    numSamples = numSamples or 5
+    local _maxH = -1e9
+    for i = 0, numSamples - 1 do
+        local _t = i / (numSamples - 1)
+        local _x = x1 + (x2 - x1) * _t
+        local _y = z1 + (z2 - z1) * _t
+        local _h = land.getHeight({ x = _x, y = _y })
+        if _h > _maxH then
+            _maxH = _h
+        end
+    end
+    return _maxH
+end
+
 --- Get transport unit by name if active and alive
 --- @param _unitName string name of the transport unit
 --- @return Unit|nil transport unit object if active and alive, otherwise nil

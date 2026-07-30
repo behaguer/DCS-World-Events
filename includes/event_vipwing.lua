@@ -215,8 +215,8 @@ function WE.EVENT.VIP_ESCORT()
     local _midX = _depPoint.x + (_dx / _totalDist) * _actualDist
     local _midY = _depPoint.z + (_dz / _totalDist) * _actualDist
     local _cruiseAlt = 6000 -- Operational altitude in meters (~20,000 ft)
-    local _midTerrainHeight = land.getHeight({ x = _midX, y = _midY })
-    local _safeCruiseAlt = math.max(_cruiseAlt, _midTerrainHeight + 500)
+    local _maxTerrainHeight = WE.getMaxTerrainHeight(_depPoint.x, _depPoint.z, _midX, _midY, 5)
+    local _safeCruiseAlt = math.max(_cruiseAlt, _maxTerrainHeight + 500)
 
     -- VIP Fighter Escort Group (unit data from static template group "Vip_Wing_fighter").
     -- Takes off from the same airfield and is tasked to escort the transport: stay
