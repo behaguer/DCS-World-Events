@@ -187,32 +187,6 @@ function WE.getMaxTerrainHeight(x1, z1, x2, z2, numSamples)
     return _maxH
 end
 
---- Check whether a unit still carries air-to-ground ordnance (i.e. is not "Winchester").
---- Anything that is not pure air-to-air (AA) is counted as AG ordnance.
---- @param _unit Unit the unit to inspect
---- @return boolean true if the unit has any AG ordnance remaining, false otherwise
-function WE.hasAGOrdnance(_unit)
-    if not _unit or type(_unit.isExist) ~= "function" or not _unit:isExist() then
-        return false
-    end
-    local _ammo = _unit:getAmmo()
-    if not _ammo then
-        return false
-    end
-    for _, _entry in pairs(_ammo) do
-        if type(_entry) == "table" and type(_entry.count) == "number" and _entry.count > 0 then
-            local _category = ""
-            if type(_entry.desc) == "table" then
-                _category = _entry.desc.category
-            end
-            if _category ~= "AA" and _category ~= "AB" then
-                return true
-            end
-        end
-    end
-    return false
-end
-
 --- Get transport unit by name if active and alive
 --- @param _unitName string name of the transport unit
 --- @return Unit|nil transport unit object if active and alive, otherwise nil

@@ -2,9 +2,8 @@
 # DCS-WORLD-EVENTS By BS MYTH
 
 A single drop-in Lua script (`WorldEvents.lua`) that adds dynamic, on-demand
-"world events" to a DCS World mission, triggered by players through the F10
-radio menu. No external scripts or frameworks are required — the whole
-system, including its own state and event handling, lives in this one file.
+"world events" to a DCS World mission, events are triggered by players through the F10
+radio menu. No external scripts or frameworks are required.
 
 ## Contents
 - [Overview](#overview)
@@ -40,6 +39,7 @@ map/mission, so the same script works unmodified across different theatres.
 
 1. Add a `DO SCRIPT FILE` (or `DO SCRIPT`) trigger action pointing at
    `WorldEvents.lua`, on a `MISSION START` trigger (once).
+2. Add the sounds for the events you want to use. (see example missions for examples)
 2. That's it — `WE.initialize()` runs automatically at the bottom of the
    file and sets up the radio menu and event handlers.
 
@@ -219,14 +219,12 @@ WE.currentBaseAttackEvent = { departure = ..., destination = ..., attackCASGroup
 
 `WE.showEventStatusAction` (the `Event Status` radio item) reports whether
 `WE.is_active` is set, and currently also prints `WE.currentVIPEvent`'s
-departure/destination if present — see [Known limitations](#known-limitations--todo)
-for a gap here.
+departure/destination if present.
 
 There's also a per-event `world.addEventHandler` (`WE.EVENT.VIPWING`,
 `WE.EVENT.BASEATTACK`) intended to report mission success/failure based on
 whether the spawned aircraft are shot down, land safely, or shut down
-engines — see [Known limitations](#known-limitations--todo), these aren't
-fully wired up to the actual spawned units yet.
+engines.
 
 ---
 
@@ -265,16 +263,7 @@ yourself; otherwise it's safe to ignore (or delete) for now.
 
 ## Known limitations / TODO
 
-- **`WE.EVENT.VIPWING:onEvent` is still a placeholder.** It checks for a
-  hardcoded unit name `"RSD381 VIP"` that doesn't match any unit actually
-  spawned by VIP Escort (the transport unit is `"Aerial-2-2"`). As written,
-  this handler never fires.
 - **Shared `is_active` flag.** Both events use the same `WE.is_active`, so
-  by design only one world event (of either type) can run at a time —
-  confirm that's still the intended behaviour now there are two events.
-- **Fixed group/unit names.** Static template names (`"ShAP"`,
-  `"Vip_Transport"`, `"Vip_Wing_fighter"`) are hardcoded strings. Spawning
-  the same event a second time before the previous instance's groups are
-  gone (destroyed/landed-and-cleaned-up) risks a name collision in DCS.
+  by design only one world event (of either type) can run at a time.
 - **Troop transport / FOB crate system** — see the section above; present
   in the file but not wired up.
