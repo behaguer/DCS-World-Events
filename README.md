@@ -193,12 +193,14 @@ airfield, bombs a random blue airfield, and returns to base.
   static template (`shap.stm`).
 - **Route**: Takeoff from the red departure airfield (carrying the group's
   enroute tasking — engage helicopters/ground units/light armed ships, ROE
-  Open Fire, Reaction to Threat Evade Fire) → a `Bombing` task targeting the
-  destination airfield's coordinates (`groupAttack = true`, `expend =
-  "All"`, so the whole flight commits) → Land back at the **same** airfield
-  they departed from. DCS's own AI already diverts to RTB on low fuel before
-  reaching the final waypoint if needed, so no separate bingo-fuel logic was
-  required.
+  Open Fire, Reaction to Threat Evade Fire) → transit to the destination at a
+  terrain-safe cruise altitude (`_safeCruiseAlt`, sampled from the highest of
+  5 ground heights along the leg) → descend to a low attack altitude
+  (`_attackAlt`, ~500 m AGL over the airfield) and run an
+  `EngageTargetsInZone` task (10 km radius, ground-unit target types only) →
+  Land back at the **same** airfield they departed from. DCS's own AI already
+  diverts to RTB on low fuel before reaching the final waypoint if needed, so
+  no separate bingo-fuel logic was required.
 - **Escort**: 4x MiG-29 Fulcrum, using the same real-group-ID-after-spawn
   and `pos`-offset `Escort` task pattern as VIP Escort, attached to the CAS
   group instead of a transport.

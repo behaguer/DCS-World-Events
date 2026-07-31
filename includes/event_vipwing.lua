@@ -557,6 +557,8 @@ function WE.EVENT.VIP_ESCORT()
             "VIP Wing mission is active! A VIP transport with 4 fighter escorts is departing %s, bound for %s. intercept it!",
             _depName, _destName),
         20)
+
+    trigger.action.outSound("attn_vip.ogg")
 end
 
 -- Create a table to hold our custom event handler
@@ -578,15 +580,19 @@ function WE.EVENT.VIPWING:onEvent(event)
             if event.id == world.event.S_EVENT_CRASH then
                 trigger.action.outText("SUCCESS: The target aircraft has been completely destroyed!", 10)
                 -- Add your custom logic for success here ( Award points, trigger next event, etc. )
+                WE.is_active = 0
+                WE.currentVIPEvent = nil
                 
             -- Scenario 2: Plane lands safely
             elseif event.id == world.event.S_EVENT_LAND then
                 trigger.action.outText("INFO: The target aircraft has touched down safely get to him before he finishes taxiing!", 5)
-                
+
             -- Scenario 3: Plane shuts down engines after landing
             elseif event.id == world.event.S_EVENT_ENGINE_SHUTDOWN then
-                trigger.action.outText("FAILED: The aircraft has landed and shut down engines. Mission Falure!", 10)
+                trigger.action.outText("FAILED: The aircraft has landed and shut down engines. Mission Failure!", 10)
                 -- Add your custom logic for failure here
+                WE.is_active = 0
+                WE.currentVIPEvent = nil
             end
             
         end

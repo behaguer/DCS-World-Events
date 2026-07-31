@@ -75,7 +75,7 @@ function WE.onPlayerEvent(event)
             end
         end
     elseif event.id == world.event.S_EVENT_PLAYER_LEAVE_UNIT then
-        if event.initiator then
+        if event.initiator and event.initiator.getGroup and type(event.initiator.getGroup) == "function" then
             local group = event.initiator:getGroup()
             if group then
                 local groupId = group:getID()
