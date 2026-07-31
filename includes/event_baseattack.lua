@@ -115,15 +115,23 @@ function WE.EVENT.BASE_ATTACK()
     -- Reserve the CAS group's id up front (used as a hint - see the real id capture below)
     local _attackCASGroupId = WE.getNextGroupId()
 
-    -- Operational altitude in meters for the transit/attack waypoint
+    -- Transit altitude in meters: keeps the flight above the highest terrain on
+    -- the departure -> destination leg so they clear the mountains.
     local _cruiseAlt = 2000
     local _maxTerrainHeight = WE.getMaxTerrainHeight(_depPoint.x, _depPoint.z, _destPoint.x, _destPoint.z, 5)
     local _safeCruiseAlt = math.max(_cruiseAlt, _maxTerrainHeight + 500)
 
+    -- Attack altitude in meters for the low-level attack run at the destination.
+    -- Kept low (only ~500 m above local ground) so the AI can visually acquire
+    -- ground units; the high _safeCruiseAlt waypoint above it handles mountain
+    -- clearance during transit and the AI descends over the (flat) airfield.
+    local _destTerrainHeight = land.getHeight({ x = _destPoint.x, y = _destPoint.z })
+    local _attackAlt = math.max(1200, _destTerrainHeight + 500)
+
     -- Base Attack CAS Group ("ShAP" - 3x Su-25, livery/loadout from the exported
     -- shap.stm static template). Route: take off from the departure (red) airfield,
-    -- attack the destination (blue) airfield, then land back at the SAME airfield
-    -- they took off from.
+    -- attack enemy ground units at the destination (blue) airfield, then land back
+    -- at the SAME airfield they took off from.
 
     local attackCASGroup = {
         ["modulation"] = 0,
@@ -274,9 +282,30 @@ function WE.EVENT.BASE_ATTACK()
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
-                -- WAYPOINT 2: Attack the blue base (target mission - bomb the airfield)
+                -- WAYPOINT 2: Transit to the destination (blue) airfield at cruise
+                -- altitude so the flight clears any mountains between here and the target.
                 [2] = {
                     ["alt"] = _safeCruiseAlt,
+                    ["action"] = "Turning Point",
+                    ["alt_type"] = "BARO",
+                    ["speed"] = 138.88888888889,
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = {
+                            ["tasks"] = {},
+                        },
+                    },
+                    ["type"] = "Turning Point",
+                    ["ETA_locked"] = false,
+                    ["y"] = _destPoint.z,
+                    ["x"] = _destPoint.x,
+                    ["speed_locked"] = true,
+                    ["formation_template"] = "",
+                },
+                -- WAYPOINT 3: Descend to a low attack altitude over the destination and
+                -- attack any enemy ground units in a 10 km zone around the airfield.
+                [3] = {
+                    ["alt"] = _attackAlt,
                     ["action"] = "Turning Point",
                     ["alt_type"] = "BARO",
                     ["speed"] = 138.88888888889,
@@ -287,15 +316,26 @@ function WE.EVENT.BASE_ATTACK()
                                 [1] = {
                                     ["number"] = 1,
                                     ["auto"] = false,
-                                    ["id"] = "Bombing",
+                                    ["id"] = "EngageTargetsInZone",
                                     ["enabled"] = true,
                                     ["params"] = {
                                         ["point"] = { ["x"] = _destPoint.x, ["y"] = _destPoint.z },
-                                        ["x"] = _destPoint.x,
-                                        ["y"] = _destPoint.z,
+                                        ["zoneRadius"] = 10000,
+                                        ["targetTypes"] = {
+                                            [1] = "Ground Units",
+                                            [2] = "Tanks",
+                                            [3] = "IFV",
+                                            [4] = "APC",
+                                            [5] = "Artillery",
+                                            [6] = "AAA",
+                                            [7] = "SR SAM",
+                                            [8] = "MR SAM",
+                                            [9] = "Infantry",
+                                            [10] = "Fortifications",
+                                            [11] = "Unarmed vehicles",
+                                        },
+                                        ["priority"] = 0,
                                         ["groupAttack"] = true,
-                                        ["attackQtyLimit"] = false,
-                                        ["expend"] = "All",
                                     },
                                 },
                             },
@@ -308,10 +348,10 @@ function WE.EVENT.BASE_ATTACK()
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
-                -- WAYPOINT 3: Land back at the SAME (departure/red) airfield after the
+                -- WAYPOINT 4: Land back at the SAME (departure/red) airfield after the
                 -- attack. DCS AI will divert to RTB earlier on its own if fuel runs low
                 -- before reaching this point, so no extra bingo-fuel scripting is needed.
-                [3] = {
+                [4] = {
                     ["alt"] = _depPoint.y,
                     ["action"] = "Landing",
                     ["alt_type"] = "BARO",
@@ -455,6 +495,113 @@ function WE.EVENT.BASE_ATTACK()
     -- Workaround to get the actual id if reassigned by DCS
     local _actualAttackCASGroupId = attackCASGroupObj:getID()
     WE.logInfo("Attack CAS group spawned successfully with actual group ID: %s", tostring(_actualAttackCASGroupId))
+
+    -- DCS flight AI only sends the flight lead after a target by default, so wingmen
+    -- just follow. To make the whole wing commit we find blue ground groups near the
+    -- destination airfield now, and once the flight is close we push an AttackGroup
+    -- task onto EACH aircraft's own controller so every Su-25 attacks.
+    local _targetGroupIds = {}
+    local _blueGroundGroups = coalition.getGroups(coalition.side.BLUE, Group.Category.GROUND)
+    if _blueGroundGroups then
+        for _, _groundGroup in pairs(_blueGroundGroups) do
+            if _groundGroup and _groundGroup:isExist() then
+                local _unit0 = _groundGroup:getUnit(1)
+                if _unit0 then
+                    local _gp = _unit0:getPoint()
+                    local _gdx = _gp.x - _destPoint.x
+                    local _gdz = _gp.z - _destPoint.z
+                    if math.sqrt(_gdx * _gdx + _gdz * _gdz) <= 15000 then
+                        table.insert(_targetGroupIds, _groundGroup:getID())
+                    end
+                end
+            end
+        end
+    end
+
+    if #_targetGroupIds > 0 then
+        WE.logInfo("Base Attack: found %d enemy ground group(s) near destination, will task the whole wing",
+            #_targetGroupIds)
+
+        -- Keep re-tasking the wing every few seconds so every Su-25 keeps attacking
+        -- until all target groups are destroyed OR the flight is Winchester (no AG
+        -- ordnance left). A single one-shot push only produces a single attack pass.
+        timer.scheduleFunction(function()
+            local _casGroup = Group.getByName("ShAP")
+            if not _casGroup or not _casGroup:isExist() then
+                WE.logInfo("Base Attack: CAS group gone, cancelling repeat attack tasking")
+                return nil
+            end
+
+            local _leadUnit = _casGroup:getUnit(1)
+            if not _leadUnit then
+                WE.logInfo("Base Attack: CAS group has no lead unit, cancelling repeat attack tasking")
+                return nil
+            end
+
+            -- Only start tasking once the flight is close enough to actually find and engage.
+            local _lpt = _leadUnit:getPoint()
+            local _ldx = _lpt.x - _destPoint.x
+            local _ldz = _lpt.z - _destPoint.z
+            local _dist = math.sqrt(_ldx * _ldx + _ldz * _ldz)
+            if _dist > 8000 then
+                return timer.getTime() + 5
+            end
+
+            -- Only re-task the target groups that are still alive.
+            local _aliveTargetGroupIds = {}
+            for _, _targetGroupId in pairs(_targetGroupIds) do
+                local _targetGroup = World.getGroupByID(_targetGroupId)
+                if _targetGroup and _targetGroup:isExist() then
+                    table.insert(_aliveTargetGroupIds, _targetGroupId)
+                end
+            end
+
+            if #_aliveTargetGroupIds == 0 then
+                WE.logInfo("Base Attack: all %d target group(s) destroyed, stopping repeat attack tasking",
+                    #_targetGroupIds)
+                return nil
+            end
+
+            -- Stop re-tasking once the whole wing is Winchester.
+            local _units = _casGroup:getUnits()
+            local _anyOrdnance = false
+            for _, _unit in pairs(_units) do
+                if _unit and _unit:isExist() and WE.hasAGOrdnance(_unit) then
+                    _anyOrdnance = true
+                    break
+                end
+            end
+
+            if not _anyOrdnance then
+                WE.logInfo("Base Attack: ShAP wing is Winchester, stopping repeat attack tasking")
+                return nil
+            end
+
+            for _, _targetGroupId in pairs(_aliveTargetGroupIds) do
+                local _attackTask = {
+                    ["id"] = "AttackGroup",
+                    ["params"] = {
+                        ["groupId"] = _targetGroupId,
+                        ["expend"] = "Quarter",
+                    },
+                }
+                -- Push the attack task onto EACH aircraft's own controller so every
+                -- Su-25 commits, not just the flight lead. Group-level tasking with
+                -- groupAttack=true is unreliable for wingmen on ground attacks.
+                for _, _unit in pairs(_units) do
+                    if _unit and _unit:isExist() and WE.hasAGOrdnance(_unit) then
+                        _unit:getController():pushTask(_attackTask)
+                    end
+                end
+            end
+            WE.logInfo("Base Attack: re-tasked %d ShAP aircraft for %d remaining target group(s)",
+                #_units, #_aliveTargetGroupIds)
+
+            return timer.getTime() + 10
+        end, nil, timer.getTime() + 5)
+    else
+        WE.logWarning("Base Attack: no blue ground groups within 15 km of destination, wing relies on zone search only")
+    end
 
     -- 10 NM rendezvous calculation (10 NM = 18,520 meters)
     local _rendezvousDistMeters = 10 * 1852
@@ -809,6 +956,8 @@ function WE.EVENT.BASE_ATTACK()
             "Base Attack mission is active! An enemy attack mission targeting our base is imminent. They are departing %s, bound for %s. Intercept it!",
             _depName, _destName),
         20)
+
+    trigger.action.outSound("attn_attack.ogg")
 end
 
 -- Create a table to hold our custom event handler
@@ -820,56 +969,48 @@ function WE.EVENT.BASEATTACK:onEvent(event)
     if not WE.is_active or WE.is_active ~= 1 then return end
     if not event.initiator then return end
 
-    if event.id ~= world.event.S_EVENT_DEAD then return end
-
     local _unit = event.initiator
     if not _unit.getName or type(_unit.getName) ~= "function" then return end
-
-    local _unitGroup = _unit:getGroup()
-    if not _unitGroup then return end
-    if not _unitGroup:isExist() then return end
+    if not _unit.getGroup or type(_unit.getGroup) ~= "function" then return end
 
     local _eventData = WE.currentBaseAttackEvent
     if not _eventData then return end
 
-    -- Only care about units from our spawned groups
-    local _unitGroupId = _unitGroup:getID()
-    if _unitGroupId ~= _eventData.attackCASGroupGroupId and _unitGroupId ~= _eventData.fighterGroupId then
-        return
-    end
+    -- Only care about units from the ShAP (Grif) CAS group
+    local _unitGroup = _unit:getGroup()
+    if not _unitGroup then return end
+    if not _unitGroup:isExist() then return end
+    if _unitGroup:getID() ~= _eventData.attackCASGroupGroupId then return end
 
-    WE.logInfo("Base Attack: unit %s destroyed, checking if all aircraft are eliminated", _unit:getName())
+    if event.id == world.event.S_EVENT_DEAD then
+        WE.logInfo("Base Attack: Grif unit %s destroyed, checking if all are eliminated", _unit:getName())
 
-    -- Check if every unit in both spawned groups is dead
-    local _allDead = true
-
-    local _casGroup = Group.getByName("ShAP")
-    if _casGroup and _casGroup:isExist() then
-        local _units = _casGroup:getUnits()
-        for _, _u in pairs(_units) do
-            if _u:getLife() > 0 then
-                _allDead = false
-                break
+        local _allDead = true
+        local _casGroup = Group.getByName("ShAP")
+        if _casGroup and _casGroup:isExist() then
+            local _units = _casGroup:getUnits()
+            for _, _u in pairs(_units) do
+                if _u:getLife() > 0 then
+                    _allDead = false
+                    break
+                end
             end
         end
-    end
 
-    local _fighterGroup = Group.getByName("Sokol_Fighter_Wing")
-    if _fighterGroup and _fighterGroup:isExist() then
-        local _units = _fighterGroup:getUnits()
-        for _, _u in pairs(_units) do
-            if _u:getLife() > 0 then
-                _allDead = false
-                break
-            end
+        if _allDead then
+            trigger.action.outText("SUCCESS: All Grif attack aircraft have been destroyed! The base is safe!", 10)
+            WE.is_active = 0
+            WE.currentBaseAttackEvent = nil
+            WE.logInfo("Base Attack event ended - all Grif aircraft destroyed (success)")
         end
-    end
 
-    if _allDead then
-        trigger.action.outText("SUCCESS: All attacking CAS and escort aircraft have been destroyed! The base is safe!", 10)
+    elseif event.id == world.event.S_EVENT_ENGINE_SHUTDOWN then
+        WE.logInfo("Base Attack: Grif unit %s shut down engines, attack failed", _unit:getName())
+
+        trigger.action.outText("FAILURE: Grif attack aircraft have landed safely at their home base. The base was not protected!", 10)
         WE.is_active = 0
         WE.currentBaseAttackEvent = nil
-        WE.logInfo("Base Attack event completed successfully - all aircraft destroyed")
+        WE.logInfo("Base Attack event ended - Grif aircraft landed and shut down (failure)")
     end
 end
 
