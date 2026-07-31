@@ -133,7 +133,7 @@ WE.getNextGroupId = function()
 end
 
 --- Get all currently airdrome-category airbases (excludes ships/FARPs/helipads)
---- @side 'red' or 'blue'
+--- @side 'red', 'blue' or 'neutral'
 --- @return table list of Airbase objects
 function WE.getAirdromes(side)
     local _airdromes = {}
@@ -144,6 +144,8 @@ function WE.getAirdromes(side)
         side = coalition.side.RED
     elseif side == 'blue' then
         side = coalition.side.BLUE
+    elseif side == 'neutral' then
+        side = coalition.side.NEUTRAL
     else
         WE.logWarning("getRedAirdromes: invalid side '%s', defaulting to RED", tostring(side))
         side = coalition.side.RED

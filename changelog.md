@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-02-06
 
 ### Added
+- New **Stronghold** world event (`WE.EVENT.STRONGHOLD`)
+  - Spawns a red stronghold (destructible building + infantry + short-range SAM) at a random location
+  - Stronghold is placed near a random **red or neutral** airdrome (never blue, so it can't land on a player base), at least 1 nautical mile away so its defenders never spawn on the runway
+  - Configurable mission timer (default 10 minutes) that ends the mission in failure on expiry
+  - On failure, a still-neutral airdrome is captured for red (`Airbase:setCoalition` + `autoCapture(false)`) and re-garrisoned with 3 tanks, 2 APCs and 2 SAM sites when fewer than 4 red units are already stationed at the airfield (the stronghold's own garrison is excluded from the count); the bunker and the original stronghold defenders are then removed
+  - All spawn points (stronghold, infantry, SAM, defense garrison) are checked with `land.getSurfaceType` (as a Vec2 `{x, y}` with `y` = north) and retried/relocated until on land — both `WATER` and `SHALLOW_WATER` are rejected so nothing spawns in the sea or near the shore
+  - Success when the stronghold and all defenders are destroyed
+  - All spawned units tracked in mission state (`WE.currentStrongholdEvent`)
+  - F10 map mark at the stronghold location, removed on event end
+  - Added to the "Spawn Event" radio menu via `WE.EnabledEvents`/`WE.EventOrder`
+  - New `includes/event_stronghold.lua` module
+- `WE.getAirdromes(side)` now also accepts `'neutral'` (in addition to `'red'`/`'blue'`)
 - Radio menu system with F10 integration
   - "WorldEvents > Spawn Event" menu option for triggering events
   - "WorldEvents > Event Status" menu option for checking event status

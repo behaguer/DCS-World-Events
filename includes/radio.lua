@@ -215,6 +215,11 @@ function WE.showEventStatusAction()
             statusMessage = statusMessage .. string.format("\n\nBase Attack: departed %s, attacking %s.",
                 tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
         end
+        if WE.currentStrongholdEvent then
+            local _remaining = math.max(0, math.ceil(WE.currentStrongholdEvent.endsAt - timer.getTime()))
+            statusMessage = statusMessage .. string.format("\n\nStronghold: located near %s, %d seconds remaining.",
+                tostring(WE.currentStrongholdEvent.area), _remaining)
+        end
     else
         statusMessage = "World Event Status: INACTIVE\n\nNo events are currently active. Use 'Spawn Event' to start a new event."
     end

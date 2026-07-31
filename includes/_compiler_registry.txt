@@ -7,4 +7,5 @@ radio.lua
 event.lua
 event_vipwing.lua
 event_baseattack.lua
+event_stronghold.lua
 init.lua
