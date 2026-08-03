@@ -1495,10 +1495,15 @@ end
 function WE.spawnEventMenuAction(_eventName)
     WE.logInfo("Spawn Event menu action triggered for '%s'", tostring(_eventName))
     
-    -- Check if an event is already active
+    -- Check if an event is already active. Stronghold missions manage their own
+    -- concurrency, so when multiple strongholds are enabled let them through and
+    -- let the stronghold module enforce its own limits.
     if WE.is_active == 1 then
-        trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
-        return
+        local _isStronghold = _eventName == "STRONGHOLD"
+        if not (_isStronghold and WE.StrongholdAllowMultiple) then
+            trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
+            return
+        end
     end
 
     if not _eventName or not WE.EnabledEvents[_eventName] then
@@ -1534,10 +1539,12 @@ function WE.showEventStatusAction()
             statusMessage = statusMessage .. string.format("\n\nBase Attack: departed %s, attacking %s.",
                 tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
         end
-        if WE.currentStrongholdEvent then
-            local _remaining = math.max(0, math.ceil(WE.currentStrongholdEvent.endsAt - timer.getTime()))
-            statusMessage = statusMessage .. string.format("\n\nStronghold: located near %s, %d seconds remaining.",
-                tostring(WE.currentStrongholdEvent.area), _remaining)
+        if #WE.activeStrongholdEvents > 0 then
+            for _i, _eventData in ipairs(WE.activeStrongholdEvents) do
+                local _remaining = math.max(0, math.ceil(_eventData.endsAt - timer.getTime()))
+                statusMessage = statusMessage .. string.format("\n\nStronghold %d: located near %s, %d seconds remaining.",
+                    _i, tostring(_eventData.area), _remaining)
+            end
         end
     else
         statusMessage = "World Event Status: INACTIVE\n\nNo events are currently active. Use 'Spawn Event' to start a new event."
@@ -3249,6 +3256,16 @@ WE.StrongholdCountry = country.id.RUSSIA
 --- The mission fails if the timer reaches 0 before the stronghold is destroyed.
 WE.StrongholdDurationSeconds = 600
 
+--- Allow more than one Stronghold mission to run at the same time. When false
+--- (default) only a single stronghold may be active, matching the rest of the
+--- World Events framework. When true the user can spawn several missions and the
+--- global WE.is_active flag stays set while ANY of them is running.
+WE.StrongholdAllowMultiple = true
+
+--- Maximum number of Stronghold missions that can be active at the same time.
+--- Only used when StrongholdAllowMultiple is true.
+WE.StrongholdMaxConcurrent = 5
+
 --- DCS unit type used for the stronghold building itself. It is spawned as a
 --- ground fortification unit (not a static object) so its destruction can be
 --- detected and tracked via S_EVENT_DEAD.
@@ -3299,8 +3316,10 @@ WE.StrongholdDefenseMinRedUnits = 4
 WE.StrongholdDefenseSpawnMin = 300
 WE.StrongholdDefenseSpawnMax = 1500
 
---- Track the currently active Stronghold event (area, position, spawned units).
-WE.currentStrongholdEvent = nil
+--- List of currently active Stronghold events (one entry per mission). Each
+--- entry holds its own area, position, spawned units and countdown state so
+--- several missions can run at once.
+WE.activeStrongholdEvents = {}
 
 --- Counter used to make each spawn's group/unit names unique (DCS rejects
 --- duplicate names) and to generate a unique negative F10 mark id.
@@ -3398,21 +3417,44 @@ function WE.randomLandOffsetNear(_x, _z, _maxOffset)
     return _x, _z
 end
 
+--- Build a set of airdrome NAMES that already host an active stronghold mission
+--- so a new mission never doubles up on the same airfield. Keyed by name rather
+--- than the Airbase object because DCS may return fresh object wrappers on each
+--- query.
+--- @return table set of used airdrome names
+function WE.getUsedStrongholdAirdromes()
+    local _used = {}
+    for _, _eventData in ipairs(WE.activeStrongholdEvents) do
+        local _base = _eventData.airbase
+        if _base and _base.getName and type(_base.getName) == "function" then
+            _used[_base:getName()] = true
+        end
+    end
+    return _used
+end
+
 --- Pick a random point near a random airdrome to place the stronghold.
 --- Only red and neutral airdromes are used so the stronghold never sits on
---- a blue (player) airfield. Points in water, closer than
---- StrongholdRunwayMinDistance to any runway of the airdrome, or on terrain
---- steeper than StrongholdMaxSlope are retried.
+--- a blue (player) airfield, and airdromes that already host an active
+--- stronghold mission are excluded so no two missions share an airfield.
+--- Points in water, closer than StrongholdRunwayMinDistance to any runway of
+--- the airdrome, or on terrain steeper than StrongholdMaxSlope are retried.
 --- @return table|nil stronghold point {x, y, z} (y = terrain height)
 --- @return string|nil name of the airdrome the stronghold is anchored near
 --- @return Airbase|nil the airdrome the stronghold is anchored near
 function WE.pickStrongholdLocation()
+    local _usedAirdromes = WE.getUsedStrongholdAirdromes()
+
     local _allAirdromes = {}
-    for _, _base in ipairs(WE.getAirdromes('red')) do table.insert(_allAirdromes, _base) end
-    for _, _base in ipairs(WE.getAirdromes('neutral')) do table.insert(_allAirdromes, _base) end
+    for _, _base in ipairs(WE.getAirdromes('red')) do
+        if not _usedAirdromes[_base:getName()] then table.insert(_allAirdromes, _base) end
+    end
+    for _, _base in ipairs(WE.getAirdromes('neutral')) do
+        if not _usedAirdromes[_base:getName()] then table.insert(_allAirdromes, _base) end
+    end
 
     if #_allAirdromes < 1 then
-        WE.logWarning("pickStrongholdLocation: no airdromes on this map, cannot place stronghold")
+        WE.logWarning("pickStrongholdLocation: no free airdromes (all already host an active stronghold), cannot place stronghold")
         return nil, nil, nil
     end
 
@@ -3723,18 +3765,19 @@ function WE.destroyStrongholdUnits(_eventData)
     WE.destroyGroupList(_eventData.groups)
 end
 
---- End the Stronghold event (success or failure) and clean up mission state.
+--- End a Stronghold mission (success or failure) and clean up its mission state.
+--- The mission is removed from the active list and the global WE.is_active flag
+--- is cleared once the last active stronghold mission ends.
+--- @param _eventData table stronghold event data
 --- @param _result string "SUCCESS" or "FAILURE"
-function WE.endStrongholdEvent(_result)
-    local _eventData = WE.currentStrongholdEvent
+function WE.endStrongholdEvent(_eventData, _result)
     if not _eventData or _eventData.ended then
         return
     end
     _eventData.ended = true
 
-    if WE.strongholdMarkId then
-        trigger.action.removeMark(WE.strongholdMarkId)
-        WE.strongholdMarkId = nil
+    if _eventData.markId then
+        trigger.action.removeMark(_eventData.markId)
     end
 
     if _result == "SUCCESS" then
@@ -3763,45 +3806,86 @@ function WE.endStrongholdEvent(_result)
         WE.destroyStrongholdUnits(_eventData)
     end
 
-    WE.is_active = 0
-    WE.currentStrongholdEvent = nil
-    WE.logInfo("Stronghold event ended - result: %s", _result)
-end
-
---- Periodic countdown tick for the active Stronghold event. Ends the event as
---- a failure once the timer reaches zero and announces the remaining time.
---- @return number|nil next check time, or nil to stop the timer
-function WE.strongholdCountdownTick()
-    local _eventData = WE.currentStrongholdEvent
-    if not _eventData or _eventData.ended then
-        return nil
-    end
-
-    local _remaining = _eventData.endsAt - timer.getTime()
-    if _remaining <= 0 then
-        WE.endStrongholdEvent("FAILURE")
-        return nil
-    end
-
-    local _remainingMinutes = math.ceil(_remaining / 60)
-    if _eventData.lastAnnouncedMinutes == nil or _remainingMinutes < _eventData.lastAnnouncedMinutes then
-        _eventData.lastAnnouncedMinutes = _remainingMinutes
-        if _remainingMinutes > 0 then
-            trigger.action.outText(string.format("Stronghold countdown: %d minute(s) remaining!", _remainingMinutes), 10)
+    -- Remove this mission from the active list
+    for _i, _active in ipairs(WE.activeStrongholdEvents) do
+        if _active == _eventData then
+            table.remove(WE.activeStrongholdEvents, _i)
+            break
         end
     end
 
-    return timer.getTime() + 1
+    -- The overall mission flag reflects ANY active stronghold mission
+    if #WE.activeStrongholdEvents == 0 then
+        WE.is_active = 0
+    end
+    WE.logInfo("Stronghold event ended - result: %s (%d active mission(s) remaining)",
+        _result, #WE.activeStrongholdEvents)
+end
+
+--- Periodic countdown tick for all active Stronghold missions. Ends each mission
+--- as a failure once its timer reaches zero and announces the remaining time.
+--- @return number|nil next check time, or nil to stop the timer
+function WE.strongholdCountdownTick()
+    if #WE.activeStrongholdEvents == 0 then
+        return nil
+    end
+
+    local _now = timer.getTime()
+    local _expiredEvents = {}
+    for _, _eventData in ipairs(WE.activeStrongholdEvents) do
+        local _remaining = _eventData.endsAt - _now
+        if _remaining <= 0 then
+            table.insert(_expiredEvents, _eventData)
+        else
+            local _remainingMinutes = math.ceil(_remaining / 60)
+            if _eventData.lastAnnouncedMinutes == nil or _remainingMinutes < _eventData.lastAnnouncedMinutes then
+                _eventData.lastAnnouncedMinutes = _remainingMinutes
+                if _remainingMinutes > 0 then
+                    trigger.action.outText(string.format(
+                        "Stronghold countdown: %d minute(s) remaining (near %s)!",
+                        _remainingMinutes, _eventData.area), 10)
+                end
+            end
+        end
+    end
+
+    -- End expired missions after the iteration so the list isn't mutated while
+    -- being walked.
+    for _, _eventData in ipairs(_expiredEvents) do
+        WE.endStrongholdEvent(_eventData, "FAILURE")
+    end
+
+    if #WE.activeStrongholdEvents == 0 then
+        return nil
+    end
+    return _now + 1
 end
 
 --- Spawn the Stronghold event: red building + ground troops + short-range SAM.
 function WE.EVENT.STRONGHOLD()
-    WE.logInfo("Stronghold event triggered")
+    WE.logInfo("Stronghold event triggered (%d active mission(s))", #WE.activeStrongholdEvents)
 
-    -- Check if already active
-    if WE.is_active == 1 then
-        trigger.action.outText("Stronghold event is already active!", 10)
-        WE.logInfo("Stronghold spawn cancelled - event already active")
+    local _activeStrongholds = #WE.activeStrongholdEvents
+
+    -- Block starting a stronghold while a DIFFERENT event type is running; the
+    -- stronghold missions manage their own concurrency once one is active.
+    if WE.is_active == 1 and _activeStrongholds == 0 then
+        trigger.action.outText("Another world event is already active!", 10)
+        WE.logInfo("Stronghold spawn cancelled - another event already active")
+        return
+    end
+
+    if not WE.StrongholdAllowMultiple then
+        -- Default behaviour: only one stronghold at a time
+        if _activeStrongholds > 0 then
+            trigger.action.outText("Stronghold event is already active!", 10)
+            WE.logInfo("Stronghold spawn cancelled - event already active")
+            return
+        end
+    elseif _activeStrongholds >= WE.StrongholdMaxConcurrent then
+        trigger.action.outText(string.format(
+            "Maximum %d active stronghold mission(s) reached!", WE.StrongholdMaxConcurrent), 10)
+        WE.logInfo("Stronghold spawn cancelled - %d mission(s) already active", _activeStrongholds)
         return
     end
 
@@ -3873,10 +3957,10 @@ function WE.EVENT.STRONGHOLD()
     table.insert(_groups, _infObj)
     WE.logInfo("Stronghold infantry spawned: %d soldier(s) (group id %s)", #_infantryUnits, tostring(_infObj:getID()))
 
-    -- Mark the event as active and remember ALL mission state for tracking
-    WE.is_active = 1
+    -- Mark the mission as active and remember ALL mission state for tracking
     local _now = timer.getTime()
-    WE.currentStrongholdEvent = {
+    local _markId = -(1000 + _spawnId)
+    local _eventData = {
         area = _areaName,
         point = _point,
         airbase = _airbase,
@@ -3885,27 +3969,42 @@ function WE.EVENT.STRONGHOLD()
         endsAt = _now + WE.StrongholdDurationSeconds,
         unitNames = _unitNames,
         groups = _groups,
+        markId = _markId,
         ended = false,
     }
+    table.insert(WE.activeStrongholdEvents, _eventData)
+    WE.is_active = 1
+    local _missionIndex = #WE.activeStrongholdEvents
 
     -- Drop an F10 map mark so players can find the stronghold on the ground
-    WE.strongholdMarkId = -(1000 + _spawnId)
-    trigger.action.markToAll(WE.strongholdMarkId,
+    trigger.action.markToAll(_markId,
         string.format("Stronghold (near %s) - destroy the building and all defenders!", _areaName),
         { x = _point.x, y = _point.y, z = _point.z })
 
-    -- Start the countdown; the mission is a failure if it reaches zero
-    timer.scheduleFunction(WE.strongholdCountdownTick, nil, timer.getTime() + 1)
+    -- The shared countdown timer walks every active mission; only start it when
+    -- this is the first active mission, otherwise it is already running.
+    if _missionIndex == 1 then
+        timer.scheduleFunction(WE.strongholdCountdownTick, nil, _now + 1)
+    end
 
     WE.logInfo("Stronghold event completed successfully - %d unit(s) in %d group(s) near %s",
         WE.countTableEntries(_unitNames), #_groups, tostring(_areaName))
 
     -- Tell all players where to go
-    trigger.action.outText(
-        string.format(
-            "STRONGHOLD is active near %s! Destroy the red stronghold and all defenders within %d minutes!",
-            _areaName, math.ceil(WE.StrongholdDurationSeconds / 60)),
-        20)
+    local _minutes = math.ceil(WE.StrongholdDurationSeconds / 60)
+    if WE.StrongholdAllowMultiple then
+        trigger.action.outText(
+            string.format(
+                "STRONGHOLD %d of %d is active near %s! Destroy the red stronghold and all defenders within %d minutes!",
+                _missionIndex, WE.StrongholdMaxConcurrent, _areaName, _minutes),
+            20)
+    else
+        trigger.action.outText(
+            string.format(
+                "STRONGHOLD is active near %s! Destroy the red stronghold and all defenders within %d minutes!",
+                _areaName, _minutes),
+            20)
+    end
 
     trigger.action.outSound("attn_stronghold.ogg")
 end
@@ -3916,24 +4015,26 @@ WE.EVENT.STRONGHOLDEVENT = {}
 -- Define the function that DCS calls every time ANY event happens in the world
 function WE.EVENT.STRONGHOLDEVENT:onEvent(event)
     if not event then return end
-    if not WE.is_active or WE.is_active ~= 1 then return end
+    if #WE.activeStrongholdEvents == 0 then return end
     if not event.initiator then return end
 
     local _unit = event.initiator
     if not _unit.getName or type(_unit.getName) ~= "function" then return end
 
-    local _eventData = WE.currentStrongholdEvent
-    if not _eventData or _eventData.ended then return end
-
     if event.id ~= world.event.S_EVENT_DEAD then return end
 
     local _name = _unit:getName()
-    if not _eventData.unitNames[_name] then return end
 
-    WE.logInfo("Stronghold: %s destroyed, checking remaining defenders", _name)
+    -- Check every active mission: the destroyed unit may belong to any of them
+    for _, _eventData in ipairs(WE.activeStrongholdEvents) do
+        if not _eventData.ended and _eventData.unitNames[_name] then
+            WE.logInfo("Stronghold: %s destroyed, checking remaining defenders (mission near %s)",
+                _name, tostring(_eventData.area))
 
-    if WE.areAllStrongholdUnitsDead(_eventData) then
-        WE.endStrongholdEvent("SUCCESS")
+            if WE.areAllStrongholdUnitsDead(_eventData) then
+                WE.endStrongholdEvent(_eventData, "SUCCESS")
+            end
+        end
     end
 end
 

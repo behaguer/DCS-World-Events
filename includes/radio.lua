@@ -176,10 +176,15 @@ end
 function WE.spawnEventMenuAction(_eventName)
     WE.logInfo("Spawn Event menu action triggered for '%s'", tostring(_eventName))
     
-    -- Check if an event is already active
+    -- Check if an event is already active. Stronghold missions manage their own
+    -- concurrency, so when multiple strongholds are enabled let them through and
+    -- let the stronghold module enforce its own limits.
     if WE.is_active == 1 then
-        trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
-        return
+        local _isStronghold = _eventName == "STRONGHOLD"
+        if not (_isStronghold and WE.StrongholdAllowMultiple) then
+            trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
+            return
+        end
     end
 
     if not _eventName or not WE.EnabledEvents[_eventName] then
@@ -215,10 +220,12 @@ function WE.showEventStatusAction()
             statusMessage = statusMessage .. string.format("\n\nBase Attack: departed %s, attacking %s.",
                 tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
         end
-        if WE.currentStrongholdEvent then
-            local _remaining = math.max(0, math.ceil(WE.currentStrongholdEvent.endsAt - timer.getTime()))
-            statusMessage = statusMessage .. string.format("\n\nStronghold: located near %s, %d seconds remaining.",
-                tostring(WE.currentStrongholdEvent.area), _remaining)
+        if #WE.activeStrongholdEvents > 0 then
+            for _i, _eventData in ipairs(WE.activeStrongholdEvents) do
+                local _remaining = math.max(0, math.ceil(_eventData.endsAt - timer.getTime()))
+                statusMessage = statusMessage .. string.format("\n\nStronghold %d: located near %s, %d seconds remaining.",
+                    _i, tostring(_eventData.area), _remaining)
+            end
         end
     else
         statusMessage = "World Event Status: INACTIVE\n\nNo events are currently active. Use 'Spawn Event' to start a new event."
