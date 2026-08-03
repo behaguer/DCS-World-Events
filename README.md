@@ -5,6 +5,8 @@ A single drop-in Lua script (`WorldEvents.lua`) that adds dynamic, on-demand
 "world events" to a DCS World mission, events are triggered by players through the F10
 radio menu. No external scripts or frameworks are required.
 
+**Version 0.1.0** — see [changelog.md](changelog.md) for the full history.
+
 ## Contents
 - [Overview](#overview)
 - [Installation](#installation)
@@ -35,6 +37,9 @@ radio menu item. From it they can:
 Only one event can be active at a time (`WE.is_active`), and each event
 picks its own airfields at random from whatever's actually on the loaded
 map/mission, so the same script works unmodified across different theatres.
+The **Stronghold** event is the exception: set `WE.StrongholdAllowMultiple =
+true` to run several stronghold missions concurrently (see
+[Stronghold](#stronghold-weeventstronghold)).
 
 ## Installation
 
@@ -101,6 +106,17 @@ WE.VIPEscortEngagementDistMax = 60000      -- meters the escort will break off t
 -- event_baseattack.lua
 WE.AttackerCountry = country.id.RUSSIA     -- country Base Attack spawns under
 WE.EscortEngagementDistMax = 60000         -- same idea, for the Base Attack escort
+```
+
+```lua
+-- event_stronghold.lua (see the Stronghold section for the full list)
+WE.StrongholdDurationSeconds = 600          -- mission length in seconds (10 minutes)
+WE.StrongholdAllowMultiple = true           -- run several strongholds at once
+WE.StrongholdMaxConcurrent = 5              -- max simultaneous missions (when enabled)
+WE.StrongholdOffsetMin = 4630               -- min distance (m) from the airdrome center
+WE.StrongholdOffsetMax = 7408               -- max distance (m) from the airdrome center
+WE.StrongholdRunwayMinDistance = 4630       -- min distance (m) from any runway (2.5 nm)
+WE.StrongholdMaxSlope = 3                   -- max terrain height change (m) across the footprint
 ```
 
 `WE.RadioUsers` works as a substring match against each player's **group
@@ -219,46 +235,77 @@ a short-range SAM — at a random location. Players must destroy the stronghold
 
 - **Location** — `WE.pickStrongholdLocation()` merges all **red and neutral**
   airdromes (never blue, so it can't land on a player base) and picks one at
-  random, then places the stronghold at a random offset (1852–2500 m, i.e. at
-  least 1 nautical mile away, `WE.StrongholdOffsetMin`/`Max`) and random
-  bearing from it, using `land.getHeight()` for the ground elevation so it
-  works on any map. Spawn points are checked with `land.getSurfaceType` and
-  retried until they're on land (never in water).
+  random, then places the stronghold at a random offset (4630–7408 m,
+  `WE.StrongholdOffsetMin`/`Max`) and random bearing from it, using
+  `land.getHeight()` for the ground elevation so it works on any map. The
+  spawn zone must be at least `WE.StrongholdRunwayMinDistance` (default
+  4630 m = 2.5 nm) from **any runway** of the chosen airdrome — measured
+  perpendicular to the full runway segment (via a cached list of
+  `Airbase:getRunways()` segments), not just its endpoints, so it holds even
+  on maps with long runways. Spawn points are checked with
+  `land.getSurfaceType` and retried until they're on land — `WATER`,
+  `SHALLOW_WATER`, `RUNWAY` and `ROAD` are all rejected, so nothing spawns in
+  the sea, on the shore, on a taxiway/apron, or on a road. Points on terrain
+  steeper than `WE.StrongholdMaxSlope` (default 3 m across the sampled
+  footprint) are rejected too, so the bunker and vehicles always sit on flat
+  ground.
+- **One airfield per mission** — airdromes that already host an *active*
+  stronghold mission are excluded when picking the location, so two missions
+  never double up on the same airfield. If every available airfield is
+  already in use, the spawn is cancelled cleanly.
 - **Units** — three red ground groups, all tracked in mission state
-  (`WE.currentStrongholdEvent.unitNames` / `.groupIds`):
+  (`WE.activeStrongholdEvents`, one entry per mission):
   - the building itself, spawned as a destructible ground *fortification* unit
     (`WE.StrongholdBuildingType`, default `"Bunker"`) rather than a static
     object, so its destruction reliably fires `S_EVENT_DEAD`;
   - a short-range SAM (`WE.StrongholdSAMType`, default `"Strela-10M3"`);
   - infantry spread around the building (`WE.StrongholdInfantryType`, default
     `"Infantry AK"`, `WE.StrongholdInfantryCount`, default 4).
-  All group/unit names are suffixed with a per-spawn counter so re-running the
-  event after a failure never collides with surviving red units.
+  All group/unit names are suffixed with a unique per-spawn id so re-running
+  the event after a failure never collides with surviving red units.
 - **Timer** — starts when the stronghold is spawned and runs for
   `WE.StrongholdDurationSeconds` (default 600 = 10 minutes). A 1-second
   periodic tick announces the remaining minutes and, on reaching 0, ends the
-  event as a **failure** ("the stronghold survived").
+  event (see [Failure consequences](#failure-consequences) below).
 - **Win condition** — `WE.EVENT.STRONGHOLDEVENT:onEvent` listens for
   `S_EVENT_DEAD` on any tracked unit; when *all* spawned units (building + SAM
   + infantry) are destroyed it ends the event as a **success**.
-- **Failure consequences** — when the timer runs out, the stronghold captures
-  the nearby airfield:
-  - if the airdrome is still neutral it is flipped to red
-    (`Airbase:setCoalition`, with `autoCapture(false)` so it stays red);
-  - red defenders are spawned around the airfield (3x
-    `WE.StrongholdDefenseTankType` "T-72B3", 2x
-    `WE.StrongholdDefenseAPCType` "BTR-80", 2x
-    `WE.StrongholdDefenseSAMType` "Strela-10M3"), but only when fewer than
-    `WE.StrongholdDefenseMinRedUnits` (default 4) red ground units are already
-    stationed within `WE.StrongholdDefenseRadius` (default 5000 m) of the
-    airfield. The stronghold's own garrison is excluded from the count — only
-    red units already at the airfield count, so already defended bases don't
-    get double-garrisoned. Spawn distances are bounded by
-    `WE.StrongholdDefenseSpawnMin`/`Max` (300–1500 m), and every defense spawn
-    point is retried until it's on land. Finally, the bunker and the
-    stronghold's original defenders are removed from the battlefield.
+- **Multiple concurrent missions** — by default only one stronghold may run
+  at a time. Set `WE.StrongholdAllowMultiple = true` to let players spawn up
+  to `WE.StrongholdMaxConcurrent` (default 5) missions simultaneously. Each
+  mission keeps its own state (position, spawned units, countdown, F10 mark),
+  the shared countdown tick walks all of them, the `S_EVENT_DEAD` handler
+  resolves each mission independently, and the global `WE.is_active` flag
+  stays set while **any** mission is running. Starting a stronghold is still
+  blocked while a *different* event type (VIP Escort / Base Attack) is
+  active.
+- **Failure consequences** — when the timer runs out:
+  - if the **bunker was already destroyed** (some defenders survived the
+    clock), the attack succeeded: the airfield is **not** captured and
+    players see *"The stronghold has been successfully destroyed, remaining
+    troops have scattered."*;
+  - otherwise the stronghold captures the nearby airfield:
+    - if the airdrome is still neutral it is flipped to red
+      (`Airbase:setCoalition`, with `autoCapture(false)` so it stays red);
+    - red defenders are spawned around the airfield (3x
+      `WE.StrongholdDefenseTankType` "T-72B3", 2x
+      `WE.StrongholdDefenseAPCType` "BTR-80", 2x
+      `WE.StrongholdDefenseSAMType` "Strela-10M3"), but only when fewer than
+      `WE.StrongholdDefenseMinRedUnits` (default 4) red ground units are
+      already stationed within `WE.StrongholdDefenseRadius` (default 5000 m)
+      of the airfield. The stronghold's own garrison is excluded from the
+      count — only red units already at the airfield count, so already
+      defended bases don't get double-garrisoned. Spawn distances are bounded
+      by `WE.StrongholdDefenseSpawnMin`/`Max` (300–1500 m), every defense
+      spawn point is retried until it's on land, and each mission's defenders
+      use its own unique `spawnId` so every captured airfield gets its own
+      garrison.
+  Finally, the bunker and the stronghold's original defenders are removed
+  from the battlefield.
 - On spawn, all players get a text with the location, remaining time, and an
-  F10 map mark (`markToAll`) that is removed when the event ends.
+  F10 map mark (`markToAll`) that is removed when the event ends. With
+  multiple missions enabled the message numbers each mission
+  ("STRONGHOLD 2 of 5 ...") and the F10 marks are unique per mission.
 
 ---
 
@@ -269,13 +316,16 @@ Each event records its own state on spawn:
 ```lua
 WE.currentVIPEvent = { departure = ..., destination = ..., transportGroupId = ..., fighterGroupId = ... }
 WE.currentBaseAttackEvent = { departure = ..., destination = ..., attackCASGroupGroupId = ..., fighterGroupId = ... }
-WE.currentStrongholdEvent = { area = ..., point = ..., duration = ..., spawnedAt = ..., endsAt = ..., unitNames = ..., groupIds = ... }
+WE.activeStrongholdEvents = {                    -- one entry per active mission
+    [1] = { area = ..., point = ..., airbase = ..., duration = ..., spawnedAt = ..., endsAt = ...,
+            unitNames = ..., groups = ..., markId = ..., spawnId = ..., buildingUnitName = ..., ended = ... },
+}
 ```
 
 `WE.showEventStatusAction` (the `Event Status` radio item) reports whether
 `WE.is_active` is set, and currently also prints each active event's key
-details — VIP Escort / Base Attack departure-destination, and the Stronghold's
-location plus remaining time.
+details — VIP Escort / Base Attack departure-destination, and one line per
+Stronghold mission ("Stronghold %d: located near %s, %d seconds remaining.").
 
 There's also a per-event `world.addEventHandler` (`WE.EVENT.VIPWING`,
 `WE.EVENT.BASEATTACK`, `WE.EVENT.STRONGHOLDEVENT`) intended to report mission
@@ -321,6 +371,8 @@ yourself; otherwise it's safe to ignore (or delete) for now.
 ## Known limitations / TODO
 
 - **Shared `is_active` flag.** All events use the same `WE.is_active`, so
-  by design only one world event (of any type) can run at a time.
+  by design only one world event (of any type) can run at a time. The
+  Stronghold event is the exception — see
+  [Multiple concurrent missions](#multiple-concurrent-missions).
 - **Troop transport / FOB crate system** — see the section above; present
   in the file but not wired up.

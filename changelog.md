@@ -5,7 +5,7 @@ All notable changes to DCS-WORLD-EVENTS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-02-06
+## [0.1.0] - 2026-08-03
 
 ### Added
 - New **Stronghold** world event (`WE.EVENT.STRONGHOLD`)
@@ -38,12 +38,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fallback global menu support when group detection fails
 
 ### Changed
+- Stronghold spawn location hardened so it never lands on a runway, taxiway/apron, road, or in the sea:
+  - spawn zone must be at least `StrongholdRunwayMinDistance` (default 4630 m = 2.5 nm) from any runway, measured perpendicular to the full runway segment (cached `Airbase:getRunways()` segments) rather than just the endpoints
+  - spawn points checked with `land.getSurfaceType` reject `RUNWAY` and `ROAD` in addition to `WATER`/`SHALLOW_WATER` (DCS reports runways, taxiways, ramps and aprons all as `RUNWAY`)
+  - new flatness check (`isPointFlat`) rejects terrain steeper than `StrongholdMaxSlope` (default 3 m) so the bunker and vehicles sit on level ground
+- `randomLandPoint` now swaps `_min`/`_max` (with a warning) instead of erroring when a config passes them inverted
+- Multiple concurrent Stronghold missions:
+  - new `activeStrongholdEvents` list (one state entry per mission) replaces the single `currentStrongholdEvent`
+  - `StrongholdAllowMultiple` / `StrongholdMaxConcurrent` config; the shared countdown tick walks every mission, the `S_EVENT_DEAD` handler resolves each independently, F10 marks are unique per mission, and `WE.is_active` stays set while any mission runs
+  - the radio menu bypasses the global one-event-at-a-time gate for Stronghold when multiple missions are enabled
+  - each mission stores its own `spawnId`, `buildingUnitName`, `markId`, `unitNames` and `groups`
+- One Stronghold per airfield: airdromes already hosting an active stronghold mission are excluded when picking the location (`getUsedStrongholdAirdromes`), so missions never double up on the same airfield
+- Failure outcome depends on the bunker: if it was destroyed before the timer ran out the airfield is **not** captured and remaining troops scatter; otherwise the airfield is still captured and re-garrisoned
 - Build system separated into `build.ps1` (combine files) and `extract.ps1` (split files)
 - Radio access control moved from player name to aircraft group name matching
 - Event handling logic separated from radio functions for better modularity
 - Enhanced logging system for debugging access control and event detection
 
 ### Fixed
+- Red defense units only spawned at **one** airfield when several strongholds failed at the same time — all missions shared the same `strongholdSpawnCounter` value, producing duplicate group names so later spawns overwrote earlier ones. Defense units now use each mission's unique `spawnId`, so every captured airfield gets its own garrison.
 - String pattern matching issue with special characters in user strings (e.g., "[Patreon]")
 - Event handler format corrected for proper DCS API compatibility
 - Radio menu persistence issues during player reslotting

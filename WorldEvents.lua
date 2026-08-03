@@ -15,7 +15,7 @@ WE = {}
 WE.Id = "World Event - "
 
 --- Version.
-WE.Version = "0.0.1"
+WE.Version = "0.1.0"
 
 WE.EVENT = {}
 -----------------[[ types.lua ]]-----------------
@@ -3257,8 +3257,8 @@ WE.StrongholdCountry = country.id.RUSSIA
 WE.StrongholdDurationSeconds = 600
 
 --- Allow more than one Stronghold mission to run at the same time. When false
---- (default) only a single stronghold may be active, matching the rest of the
---- World Events framework. When true the user can spawn several missions and the
+--- only a single stronghold may be active, matching the rest of the World
+--- Events framework. When true the user can spawn several missions and the
 --- global WE.is_active flag stays set while ANY of them is running.
 WE.StrongholdAllowMultiple = true
 

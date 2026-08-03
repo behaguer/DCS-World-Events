@@ -15,6 +15,6 @@ WE = {}
 WE.Id = "World Event - "
 
 --- Version.
-WE.Version = "0.0.1"
+WE.Version = "0.1.0"
 
 WE.EVENT = {}
