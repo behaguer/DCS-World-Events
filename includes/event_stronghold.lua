@@ -542,22 +542,30 @@ function WE.endStrongholdEvent(_eventData, _result)
     if _result == "SUCCESS" then
         trigger.action.outText("SUCCESS: The stronghold and all defenders have been destroyed!", 10)
     else
-        trigger.action.outText("FAILURE: Time ran out! The stronghold survived the attack.", 10)
+        -- If the bunker was destroyed before the clock ran out, the attack
+        -- succeeded despite a few surviving defenders: no airfield capture,
+        -- the remaining troops simply scatter.
+        local _building = _eventData.buildingUnitName and Unit.getByName(_eventData.buildingUnitName)
+        if not _building or not _building:isExist() or _building:getLife() <= 0 then
+            trigger.action.outText("The stronghold has been successfully destroyed, remaining troops have scattered.", 10)
+        else
+            trigger.action.outText("FAILURE: Time ran out! The stronghold survived the attack.", 10)
 
-        -- The stronghold captures the nearby airfield and re-garrisons it
-        local _airbase = _eventData.airbase
-        WE.captureStrongholdAirfield(_airbase)
+            -- The stronghold captures the nearby airfield and re-garrisons it
+            local _airbase = _eventData.airbase
+            WE.captureStrongholdAirfield(_airbase)
 
-        if _airbase and _airbase:isExist() then
-            local _airbasePoint = _airbase:getPoint()
-            local _redUnitCount = WE.countRedGroundUnitsNear(_airbasePoint, WE.StrongholdDefenseRadius,
-                _eventData.unitNames)
-            WE.logInfo("Stronghold failure: %d red ground unit(s) stationed within %dm of %s",
-                _redUnitCount, WE.StrongholdDefenseRadius, tostring(_airbase:getName()))
-            if _redUnitCount < WE.StrongholdDefenseMinRedUnits then
-                WE.spawnStrongholdDefense(_airbase, WE.strongholdSpawnCounter)
-                trigger.action.outText(
-                    "The stronghold has reinforced the captured airfield with tanks, APCs and SAM sites!", 15)
+            if _airbase and _airbase:isExist() then
+                local _airbasePoint = _airbase:getPoint()
+                local _redUnitCount = WE.countRedGroundUnitsNear(_airbasePoint, WE.StrongholdDefenseRadius,
+                    _eventData.unitNames)
+                WE.logInfo("Stronghold failure: %d red ground unit(s) stationed within %dm of %s",
+                    _redUnitCount, WE.StrongholdDefenseRadius, tostring(_airbase:getName()))
+                if _redUnitCount < WE.StrongholdDefenseMinRedUnits then
+                    WE.spawnStrongholdDefense(_airbase, _eventData.spawnId)
+                    trigger.action.outText(
+                        "The stronghold has reinforced the captured airfield with tanks, APCs and SAM sites!", 15)
+                end
             end
         end
 
@@ -729,6 +737,8 @@ function WE.EVENT.STRONGHOLD()
         unitNames = _unitNames,
         groups = _groups,
         markId = _markId,
+        spawnId = _spawnId,
+        buildingUnitName = _buildingUnitName,
         ended = false,
     }
     table.insert(WE.activeStrongholdEvents, _eventData)
