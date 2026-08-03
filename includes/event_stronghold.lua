@@ -29,10 +29,20 @@ WE.StrongholdInfantryCount = 4
 
 --- The stronghold is placed at a random offset (meters) from a random airdrome
 --- (red or neutral), so it works on any map and has flat-ish ground to sit on.
---- The minimum keeps the bunker at least 1 nautical mile (1852 m) from the
+--- The minimum keeps the bunker at least 2.5 nautical miles (4630 m) from the
 --- airfield so its defenders never end up on the runway.
-WE.StrongholdOffsetMin = 1852
-WE.StrongholdOffsetMax = 2500
+WE.StrongholdOffsetMin = 4630
+WE.StrongholdOffsetMax = 7408
+
+--- The stronghold spawn zone must be at least this far (meters) from any runway
+--- of the chosen airdrome (2.5 nm). Measured perpendicular to the full runway
+--- segment (not just its ends) so it holds even on maps with long runways.
+WE.StrongholdRunwayMinDistance = 4630
+
+--- Maximum allowed height difference (meters) across the stronghold's footprint
+--- (sampled a short distance around the spawn point). Points on steeper terrain
+--- (cliffs, ravines) are rejected so the bunker and vehicles sit on flat ground.
+WE.StrongholdMaxSlope = 3
 
 --- Tanks / APCs / SAM sites spawned to defend the airfield after a failed
 --- stronghold, when there are not enough red units already nearby.
@@ -62,11 +72,13 @@ WE.currentStrongholdEvent = nil
 --- duplicate names) and to generate a unique negative F10 mark id.
 WE.strongholdSpawnCounter = 0
 
---- Check whether a point is on land (its terrain surface type is not water or
---- shallow water). DCS's land.getSurfaceType takes a Vec2 {x, y} where y is
---- the north (z) coordinate, so the vec3 point is converted here.
+--- Check whether a point is usable as a stronghold spawn: it must not be water,
+--- must not be paved airfield surface, and must not be on a road. DCS reports
+--- runways, taxiways, ramps and aprons all as land.SurfaceType.RUNWAY, and roads
+--- as land.SurfaceType.ROAD, so this check alone guarantees the stronghold never
+--- spawns on any pavement.
 --- @param _point table point {x, y, z}
---- @return boolean true when the point is not water
+--- @return boolean true when the point is not water and not paved
 function WE.isPointOnLand(_point)
     local _surfaceType = land.getSurfaceType({ x = _point.x, y = _point.z })
     if not _surfaceType then
@@ -74,6 +86,36 @@ function WE.isPointOnLand(_point)
     end
     if _surfaceType == land.SurfaceType.WATER or _surfaceType == land.SurfaceType.SHALLOW_WATER then
         return false
+    end
+    if land.SurfaceType.RUNWAY and _surfaceType == land.SurfaceType.RUNWAY then
+        return false
+    end
+    if land.SurfaceType.ROAD and _surfaceType == land.SurfaceType.ROAD then
+        return false
+    end
+    return true
+end
+
+--- Check that the terrain around _point is flat enough for the stronghold to sit
+--- on (no cliffs, ravines or steep slopes). Samples the terrain height at the
+--- point and at a small offset in each direction.
+--- @param _point table point {x, y, z}
+--- @param _sampleRadius number distance (meters) to sample around the point
+--- @return boolean true when the terrain is flat enough
+function WE.isPointFlat(_point, _sampleRadius)
+    _sampleRadius = _sampleRadius or 30
+    local _height = land.getHeight({ x = _point.x, y = _point.z })
+    local _offsets = {
+        { _sampleRadius, 0 },
+        { -_sampleRadius, 0 },
+        { 0, _sampleRadius },
+        { 0, -_sampleRadius },
+    }
+    for _, _offset in ipairs(_offsets) do
+        local _sampleHeight = land.getHeight({ x = _point.x + _offset[1], y = _point.z + _offset[2] })
+        if math.abs(_sampleHeight - _height) > WE.StrongholdMaxSlope then
+            return false
+        end
     end
     return true
 end
@@ -88,6 +130,10 @@ end
 --- @return table|nil point {x, y, z}, or nil when no land point was found
 function WE.randomLandPoint(_x, _z, _min, _max, _attempts)
     _attempts = _attempts or 10
+    if _min > _max then
+        WE.logWarning("randomLandPoint: _min (%d) > _max (%d), swapping", _min, _max)
+        _min, _max = _max, _min
+    end
     local _point = { x = _x, y = 0, z = _z }
     for _ = 1, _attempts do
         local _bearing = math.random() * math.pi * 2
@@ -120,7 +166,9 @@ end
 
 --- Pick a random point near a random airdrome to place the stronghold.
 --- Only red and neutral airdromes are used so the stronghold never sits on
---- a blue (player) airfield. Points in water are retried.
+--- a blue (player) airfield. Points in water, closer than
+--- StrongholdRunwayMinDistance to any runway of the airdrome, or on terrain
+--- steeper than StrongholdMaxSlope are retried.
 --- @return table|nil stronghold point {x, y, z} (y = terrain height)
 --- @return string|nil name of the airdrome the stronghold is anchored near
 --- @return Airbase|nil the airdrome the stronghold is anchored near
@@ -137,16 +185,104 @@ function WE.pickStrongholdLocation()
     for _ = 1, 10 do
         local _base = _allAirdromes[math.random(1, #_allAirdromes)]
         local _basePoint = _base:getPoint()
-        local _point = WE.randomLandPoint(_basePoint.x, _basePoint.z,
-            WE.StrongholdOffsetMin, WE.StrongholdOffsetMax, 10)
-        if _point then
-            _point.y = land.getHeight({ x = _point.x, y = _point.z })
-            return _point, _base:getName(), _base
+        local _runwaySegments = WE.getRunwaySegments(_base)
+        for _ = 1, 15 do
+            local _point = WE.randomLandPoint(_basePoint.x, _basePoint.z,
+                WE.StrongholdOffsetMin, WE.StrongholdOffsetMax, 10)
+            if _point and WE.minDistanceToRunway(_runwaySegments, _point) >= WE.StrongholdRunwayMinDistance then
+                _point.y = land.getHeight({ x = _point.x, y = _point.z })
+                if WE.isPointFlat(_point, 30) then
+                    return _point, _base:getName(), _base
+                end
+            end
         end
     end
 
-    WE.logWarning("pickStrongholdLocation: no land point found near any airdrome, cancelling stronghold")
+    WE.logWarning("pickStrongholdLocation: no suitable point (land, >= %.0fm from runways, flat) near any airdrome, cancelling stronghold",
+        WE.StrongholdRunwayMinDistance)
     return nil, nil, nil
+end
+
+--- Extract a flat list of runway segments from an airbase. Each entry is a
+--- { x1, z1, x2, z2, halfWidth } array, ready for repeated distance checks
+--- without re-querying the airbase. Returns nil when there are no runways.
+--- @param _airbase Airbase
+--- @return table|nil list of runway segment arrays
+function WE.getRunwaySegments(_airbase)
+    if not _airbase.getRunways or type(_airbase.getRunways) ~= "function" then
+        return nil
+    end
+    local _runways = _airbase:getRunways()
+    if not _runways or #_runways == 0 then
+        return nil
+    end
+    local _segments = {}
+    for _, _runway in ipairs(_runways) do
+        local _end1, _end2 = _runway.end1, _runway.end2
+        if _end1 and _end2 then
+            table.insert(_segments, {
+                _end1.x, _end1.z, _end2.x, _end2.z, (_runway.width or 0) / 2,
+            })
+        end
+    end
+    if #_segments == 0 then
+        return nil
+    end
+    return _segments
+end
+
+--- Minimum distance (meters) from a point to any runway segment produced by
+--- WE.getRunwaySegments, measured perpendicular to each full segment and reduced
+--- by its half width so the runway surface itself counts as distance 0. Returns
+--- math.huge when _segments is nil (no runway to avoid).
+--- @param _segments table|nil runway segment list
+--- @param _point table point {x, y, z}
+--- @return number minimum distance in meters
+function WE.minDistanceToRunway(_segments, _point)
+    if not _segments then
+        return math.huge
+    end
+    local _min = math.huge
+    for _, _seg in ipairs(_segments) do
+        local _distance = WE.distanceToSegmentXY(_seg[1], _seg[2], _seg[3], _seg[4], _point)
+        _distance = math.max(0, _distance - _seg[5])
+        if _distance < _min then
+            _min = _distance
+        end
+    end
+    return _min
+end
+
+--- Shortest distance (meters) from a point to a line segment, measured in the
+--- horizontal x/z plane. Takes raw coordinates to avoid per-call table churn.
+--- @param _ax number segment start x
+--- @param _az number segment start z
+--- @param _bx number segment end x
+--- @param _bz number segment end z
+--- @param _point table point {x, y, z}
+--- @return number distance in meters
+function WE.distanceToSegmentXY(_ax, _az, _bx, _bz, _point)
+    local _dx = _bx - _ax
+    local _dz = _bz - _az
+    local _lenSq = _dx * _dx + _dz * _dz
+    if _lenSq == 0 then
+        local _dpx = _point.x - _ax
+        local _dpz = _point.z - _az
+        return math.sqrt(_dpx * _dpx + _dpz * _dpz)
+    end
+
+    local _t = ((_point.x - _ax) * _dx + (_point.z - _az) * _dz) / _lenSq
+    if _t < 0 then
+        _t = 0
+    elseif _t > 1 then
+        _t = 1
+    end
+
+    local _cx = _ax + _t * _dx
+    local _cz = _az + _t * _dz
+    local _dpx = _point.x - _cx
+    local _dpz = _point.z - _cz
+    return math.sqrt(_dpx * _dpx + _dpz * _dpz)
 end
 
 --- Build a stationary ground group table for DCS.
@@ -186,6 +322,45 @@ function WE.buildStationaryGroundGroup(_name, _groupId, _x, _z, _units)
         ["name"] = _name,
         ["start_time"] = 0,
         ["groupId"] = _groupId,
+    }
+end
+
+--- Spawn a stationary ground group and return it. Shared by all stronghold
+--- spawns (building, SAM, infantry, defense) so the group table and the
+--- success/failure logging only exist once.
+--- @param _groupName string group name (must be unique per spawn)
+--- @param _x number east coordinate
+--- @param _z number north coordinate
+--- @param _units table unit definitions for the group
+--- @param _logLabel string label used in the spawn log line
+--- @return Group|nil the spawned group, or nil when spawning failed
+function WE.spawnStrongholdGroundGroup(_groupName, _x, _z, _units, _logLabel)
+    local _groupObj = coalition.addGroup(WE.StrongholdCountry, Group.Category.GROUND,
+        WE.buildStationaryGroundGroup(_groupName, WE.getNextGroupId(), _x, _z, _units))
+    if _groupObj then
+        WE.logInfo("Stronghold %s spawned: %s (group id %s)", _logLabel, _groupName, tostring(_groupObj:getID()))
+    else
+        WE.logError("Failed to spawn stronghold %s: %s", _logLabel, _groupName)
+    end
+    return _groupObj
+end
+
+--- Build a single-unit definition table for a stationary ground unit.
+--- @param _unitName string unit name (must be unique per spawn)
+--- @param _unitType string DCS unit type
+--- @param _x number east coordinate
+--- @param _z number north coordinate
+--- @param _heading number heading in degrees
+--- @return table unit definition
+function WE.buildStrongholdUnit(_unitName, _unitType, _x, _z, _heading)
+    return {
+        ["type"] = _unitType,
+        ["unitId"] = WE.getNextUnitId(),
+        ["name"] = _unitName,
+        ["x"] = _x,
+        ["y"] = _z,
+        ["heading"] = _heading,
+        ["skill"] = "Excellent",
     }
 end
 
@@ -276,32 +451,31 @@ function WE.spawnStrongholdDefense(_airbase, _spawnId)
     for _, _def in ipairs(_defenses) do
         for _i = 1, _def.count do
             local _spawnPoint = WE.randomLandPoint(_point.x, _point.z,
-                WE.StrongholdDefenseSpawnMin, WE.StrongholdDefenseSpawnMax)
+                WE.StrongholdDefenseSpawnMin, WE.StrongholdDefenseSpawnMax, 10)
             if not _spawnPoint then
                 WE.logWarning("Stronghold defense: no land point near %s, skipping %s",
                     tostring(_airbase:getName()), _def.type)
             else
                 local _unitName = string.format("ShDef-%s-%d-%d", _def.name, _spawnId, _i)
-                local _groupObj = coalition.addGroup(WE.StrongholdCountry, Group.Category.GROUND,
-                    WE.buildStationaryGroundGroup(
-                        string.format("Stronghold_Def_%s_%d_%d", _def.name, _spawnId, _i),
-                        WE.getNextGroupId(), _spawnPoint.x, _spawnPoint.z, {
-                            [1] = {
-                                ["type"] = _def.type,
-                                ["unitId"] = WE.getNextUnitId(),
-                                ["name"] = _unitName,
-                                ["x"] = _spawnPoint.x,
-                                ["y"] = _spawnPoint.z,
-                                ["heading"] = math.random(0, 360),
-                                ["skill"] = "Excellent",
-                            },
-                        }))
-                if _groupObj then
-                    WE.logInfo("Stronghold defense spawned: %s (%s)", _unitName, _def.type)
-                else
-                    WE.logError("Failed to spawn stronghold defense unit: %s (%s)", _unitName, _def.type)
-                end
+                WE.spawnStrongholdGroundGroup(
+                    string.format("Stronghold_Def_%s_%d_%d", _def.name, _spawnId, _i),
+                    _spawnPoint.x, _spawnPoint.z,
+                    { [1] = WE.buildStrongholdUnit(_unitName, _def.type, _spawnPoint.x, _spawnPoint.z,
+                        math.random(0, 360)) },
+                    "defense")
             end
+        end
+    end
+end
+
+--- Destroy a list of groups if they still exist.
+--- @param _groups table list of Group objects
+function WE.destroyGroupList(_groups)
+    if not _groups then return end
+    for _, _group in ipairs(_groups) do
+        if _group and _group:isExist() then
+            _group:destroy()
+            WE.logInfo("Stronghold: removed group %s", tostring(_group:getName()))
         end
     end
 end
@@ -312,12 +486,7 @@ end
 --- @param _eventData table stronghold event data
 function WE.destroyStrongholdUnits(_eventData)
     if not _eventData.groups then return end
-    for _, _group in ipairs(_eventData.groups) do
-        if _group and _group:isExist() then
-            _group:destroy()
-            WE.logInfo("Stronghold: removed group %s", tostring(_group:getName()))
-        end
-    end
+    WE.destroyGroupList(_eventData.groups)
 end
 
 --- End the Stronghold event (success or failure) and clean up mission state.
@@ -421,79 +590,50 @@ function WE.EVENT.STRONGHOLD()
     local _groups = {}
 
     -- Spawn the building (destructible fortification) at the center
-    local _buildingGroupId = WE.getNextGroupId()
     local _buildingUnitName = string.format("Sh-Building-%d", _spawnId)
-    local _buildingObj = coalition.addGroup(WE.StrongholdCountry, Group.Category.GROUND,
-        WE.buildStationaryGroundGroup(string.format("Stronghold_Building_%d", _spawnId), _buildingGroupId,
-            _point.x, _point.z, {
-                [1] = {
-                    ["type"] = WE.StrongholdBuildingType,
-                    ["unitId"] = WE.getNextUnitId(),
-                    ["name"] = _buildingUnitName,
-                    ["x"] = _point.x,
-                    ["y"] = _point.z,
-                    ["heading"] = 0,
-                    ["skill"] = "Excellent",
-                },
-            }))
+    local _buildingObj = WE.spawnStrongholdGroundGroup(
+        string.format("Stronghold_Building_%d", _spawnId),
+        _point.x, _point.z,
+        { [1] = WE.buildStrongholdUnit(_buildingUnitName, WE.StrongholdBuildingType, _point.x, _point.z, 0) },
+        "building")
     if not _buildingObj then
-        WE.logError("Failed to spawn stronghold building group")
         trigger.action.outText("Failed to spawn stronghold building", 10)
         return
     end
     table.insert(_groups, _buildingObj)
     _unitNames[_buildingUnitName] = true
-    WE.logInfo("Stronghold building spawned: %s (group id %s)", _buildingUnitName, tostring(_buildingObj:getID()))
 
     -- Spawn the short-range SAM to the side of the building (kept on land)
     local _samX, _samZ = WE.randomLandOffsetNear(_point.x, _point.z, 60)
-    local _samGroupId = WE.getNextGroupId()
     local _samUnitName = string.format("Sh-SAM-%d", _spawnId)
-    local _samObj = coalition.addGroup(WE.StrongholdCountry, Group.Category.GROUND,
-        WE.buildStationaryGroundGroup(string.format("Stronghold_SAM_%d", _spawnId), _samGroupId,
-            _samX, _samZ, {
-                [1] = {
-                    ["type"] = WE.StrongholdSAMType,
-                    ["unitId"] = WE.getNextUnitId(),
-                    ["name"] = _samUnitName,
-                    ["x"] = _samX,
-                    ["y"] = _samZ,
-                    ["heading"] = math.random(0, 360),
-                    ["skill"] = "Excellent",
-                },
-            }))
+    local _samObj = WE.spawnStrongholdGroundGroup(
+        string.format("Stronghold_SAM_%d", _spawnId),
+        _samX, _samZ,
+        { [1] = WE.buildStrongholdUnit(_samUnitName, WE.StrongholdSAMType, _samX, _samZ, math.random(0, 360)) },
+        "SAM")
     if not _samObj then
-        WE.logError("Failed to spawn stronghold SAM group")
         trigger.action.outText("Failed to spawn stronghold SAM", 10)
+        WE.destroyGroupList(_groups)
         return
     end
     table.insert(_groups, _samObj)
     _unitNames[_samUnitName] = true
-    WE.logInfo("Stronghold SAM spawned: %s (group id %s)", _samUnitName, tostring(_samObj:getID()))
 
     -- Spawn the defending infantry spread around the stronghold (kept on land)
     local _infantryUnits = {}
     for _i = 1, WE.StrongholdInfantryCount do
         local _unitName = string.format("Sh-Inf-%d-%d", _spawnId, _i)
         local _infX, _infZ = WE.randomLandOffsetNear(_point.x, _point.z, 80)
-        _infantryUnits[_i] = {
-            ["type"] = WE.StrongholdInfantryType,
-            ["unitId"] = WE.getNextUnitId(),
-            ["name"] = _unitName,
-            ["x"] = _infX,
-            ["y"] = _infZ,
-            ["heading"] = math.random(0, 360),
-            ["skill"] = "Excellent",
-        }
+        _infantryUnits[_i] = WE.buildStrongholdUnit(_unitName, WE.StrongholdInfantryType,
+            _infX, _infZ, math.random(0, 360))
         _unitNames[_unitName] = true
     end
-    local _infGroupId = WE.getNextGroupId()
-    local _infObj = coalition.addGroup(WE.StrongholdCountry, Group.Category.GROUND,
-        WE.buildStationaryGroundGroup(string.format("Stronghold_Infantry_%d", _spawnId), _infGroupId,
-            _point.x, _point.z, _infantryUnits))
+    local _infObj = WE.spawnStrongholdGroundGroup(
+        string.format("Stronghold_Infantry_%d", _spawnId),
+        _point.x, _point.z, _infantryUnits, "infantry")
     if not _infObj then
-        WE.logError("Failed to spawn stronghold infantry group")
         trigger.action.outText("Failed to spawn stronghold defenders", 10)
+        WE.destroyGroupList(_groups)
         return
     end
     table.insert(_groups, _infObj)
