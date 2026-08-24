@@ -167,6 +167,91 @@ function WE.getAirdromes(side)
     return _airdromes
 end
 
+--- Get a runway-aligned takeoff spawn point for an airbase.
+--- Spawning aircraft "From Runway" at the airbase reference point leaves them
+--- misaligned wherever the reference point is not on a runway (aircraft sit
+--- stuck and never take off), so use real runway data instead and fall back to
+--- the reference point only when no runway data is available. The returned
+--- position sits just past the runway threshold, facing down the runway.
+--- @param _airbase Airbase airbase to query
+--- @return table|nil point {x, z, y, heading} takeoff position and heading in radians
+function WE.getTakeoffPoint(_airbase)
+    local _fallback = nil
+    if _airbase and _airbase.getPoint and type(_airbase.getPoint) == "function" then
+        local _point = _airbase:getPoint()
+        _fallback = { x = _point.x, z = _point.z, y = _point.y, heading = 0 }
+    end
+
+    if not _airbase.getRunways or type(_airbase.getRunways) ~= "function" then
+        return _fallback
+    end
+
+    local _ok, _runways = pcall(function() return _airbase:getRunways() end)
+    if not _ok or type(_runways) ~= "table" or #_runways == 0 then
+        WE.logWarning("getTakeoffPoint: no runway data for %s, falling back to airbase reference point",
+            tostring(_airbase:getName()))
+        return _fallback
+    end
+
+    -- use the longest runway that exposes usable end coordinates
+    local _best = nil
+    for _, _runway in ipairs(_runways) do
+        if _runway.end1 and _runway.end2 then
+            if _best == nil or (_runway.length or 0) > (_best.length or 0) then
+                _best = _runway
+            end
+        end
+    end
+
+    if _best == nil then
+        WE.logWarning("getTakeoffPoint: no usable runway ends for %s, falling back to airbase reference point",
+            tostring(_airbase:getName()))
+        return _fallback
+    end
+
+    local _e1, _e2 = _best.end1, _best.end2
+    local _dx = _e2.x - _e1.x
+    local _dz = _e2.z - _e1.z
+    local _len = math.sqrt(_dx * _dx + _dz * _dz)
+
+    -- spawn on end1 rolling toward end2 unless the runway heading says otherwise
+    local _spawnX, _spawnZ, _spawnY = _e1.x, _e1.z, _e1.y
+    local _dirX, _dirZ = 0, 0
+    if _len > 0 then
+        _dirX = _dx / _len
+        _dirZ = _dz / _len
+    end
+
+    -- align the roll direction with the runway heading when available,
+    -- starting from the opposite end so the aircraft uses the full length.
+    -- Only trust the heading when it is a plausible radian value.
+    if type(_best.heading) == "number" and math.abs(_best.heading) <= (2 * math.pi) then
+        local _headingX = math.sin(_best.heading)
+        local _headingZ = math.cos(_best.heading)
+        if _headingX * _dirX + _headingZ * _dirZ < 0 then
+            _spawnX = _e2.x
+            _spawnZ = _e2.z
+            _spawnY = _e2.y
+            _dirX = -_dirX
+            _dirZ = -_dirZ
+        end
+    end
+
+    -- step the spawn point down the runway from the threshold: DCS snaps
+    -- "From Runway" groups to the runway end nearest the spawn position, so
+    -- spawning exactly ON the threshold can leave the aircraft facing back
+    -- toward the threshold instead of down the runway. A small offset makes
+    -- the intended takeoff end unambiguous and matches the returned heading.
+    local _spawnOffsetMeters = 60
+
+    return {
+        x = _spawnX + _dirX * _spawnOffsetMeters,
+        z = _spawnZ + _dirZ * _spawnOffsetMeters,
+        y = _spawnY,
+        heading = math.atan2(_dirX, _dirZ),
+    }
+end
+
 --- Sample terrain height at evenly spaced points along a line and return the maximum.
 --- @param x1 number start x
 --- @param z1 number start z

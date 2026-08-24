@@ -77,6 +77,20 @@ function WE.EVENT.VIP_ESCORT()
     local _depId = _departureAirfield:getID()
     local _destId = _destinationAirfield:getID()
 
+    -- Spawn/takeoff coordinates must come from the actual runway, not the airbase
+    -- reference point: on some maps (e.g. Syria) the reference point sits off the
+    -- runway and "From Runway" aircraft spawn misaligned and never take off.
+    local _depRunway = WE.getTakeoffPoint(_departureAirfield)
+
+    if _depRunway == nil then
+        WE.logError("VIP_ESCORT: could not determine a takeoff point at %s - event cancelled", _depName)
+        trigger.action.outText("VIP Wing event could not start: no usable runway at departure airfield!", 10)
+        return
+    end
+
+    WE.logInfo("VIP_ESCORT: takeoff spawn at %s x=%.0f z=%.0f alt=%.0f heading=%.2f rad", _depName, _depRunway.x,
+        _depRunway.z, _depRunway.y, _depRunway.heading)
+
     WE.logInfo("VIP_ESCORT: departure=%s (id %s), destination=%s (id %s)", _depName, tostring(_depId), _destName,
         tostring(_destId))
 
@@ -97,7 +111,7 @@ function WE.EVENT.VIP_ESCORT()
         ["route"] = {
             ["points"] = {
                 [1] = {
-                    ["alt"] = _depPoint.y,
+                    ["alt"] = _depRunway.y,
                     ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
                     ["speed"] = 154.16666666667,
@@ -127,8 +141,8 @@ function WE.EVENT.VIP_ESCORT()
                     ["type"] = "TakeOff",
                     ["ETA"] = 0,
                     ["ETA_locked"] = true,
-                    ["y"] = _depPoint.z,
-                    ["x"] = _depPoint.x,
+                    ["y"] = _depRunway.z,
+                    ["x"] = _depRunway.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -155,7 +169,7 @@ function WE.EVENT.VIP_ESCORT()
         },
         ["units"] = {
             [1] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "iqaf 23rd sqn, new al muthana air base",
                 ["skill"] = "Excellent",
@@ -169,10 +183,10 @@ function WE.EVENT.VIP_ESCORT()
                 },
                 ["type"] = "C-130J-30",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "014",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "RSD381 VIP",
                 ["payload"] = {
                     ["pylons"] = {},
@@ -181,12 +195,12 @@ function WE.EVENT.VIP_ESCORT()
                     ["chaff"] = 220,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 126,
             },
         },
-        ["y"] = _depPoint.z,
-        ["x"] = _depPoint.x,
+        ["y"] = _depRunway.z,
+        ["x"] = _depRunway.x,
         ["name"] = "Vip_Transport",
         ["communication"] = true,
         ["start_time"] = 0,
@@ -233,7 +247,7 @@ function WE.EVENT.VIP_ESCORT()
             ["points"] = {
                 -- WAYPOINT 1: Takeoff / Departure Airfield
                 [1] = {
-                    ["alt"] = _depPoint.y,
+                    ["alt"] = _depRunway.y,
                     ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
                     ["speed"] = 220.97222222222,
@@ -337,8 +351,8 @@ function WE.EVENT.VIP_ESCORT()
                     ["type"] = "TakeOff",
                     ["ETA"] = 0,
                     ["ETA_locked"] = true,
-                    ["y"] = _depPoint.z,
-                    ["x"] = _depPoint.x,
+                    ["y"] = _depRunway.z,
+                    ["x"] = _depRunway.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -385,7 +399,7 @@ function WE.EVENT.VIP_ESCORT()
         },
         ["units"] = {
             [1] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "Excellent",
@@ -395,10 +409,10 @@ function WE.EVENT.VIP_ESCORT()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "010",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Aerial-2-1",
                 ["payload"] = {
                     ["pylons"] = {
@@ -415,11 +429,11 @@ function WE.EVENT.VIP_ESCORT()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 121,
             },
             [2] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -429,10 +443,10 @@ function WE.EVENT.VIP_ESCORT()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "011",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Vip_Wing-1",
                 ["payload"] = {
                     ["pylons"] = {
@@ -449,11 +463,11 @@ function WE.EVENT.VIP_ESCORT()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 122,
             },
             [3] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -463,10 +477,10 @@ function WE.EVENT.VIP_ESCORT()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "012",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Vip_Wing-2",
                 ["payload"] = {
                     ["pylons"] = {
@@ -483,11 +497,11 @@ function WE.EVENT.VIP_ESCORT()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 123,
             },
             [4] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -497,10 +511,10 @@ function WE.EVENT.VIP_ESCORT()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "013",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Vip_Wing-3",
                 ["payload"] = {
                     ["pylons"] = {
@@ -517,12 +531,12 @@ function WE.EVENT.VIP_ESCORT()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 124,
             },
         },
-        ["y"] = _depPoint.z,
-        ["x"] = _depPoint.x,
+        ["y"] = _depRunway.z,
+        ["x"] = _depRunway.x,
         ["name"] = "Vip_Wing_fighter",
         ["communication"] = true,
         ["start_time"] = 0,

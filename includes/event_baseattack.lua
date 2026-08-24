@@ -74,6 +74,20 @@ function WE.EVENT.BASE_ATTACK()
     local _depId = _departureAirfield:getID()
     local _destId = _destinationAirfield:getID()
 
+    -- Spawn/takeoff coordinates must come from the actual runway, not the airbase
+    -- reference point: on some maps (e.g. Syria) the reference point sits off the
+    -- runway and "From Runway" aircraft spawn misaligned and never take off.
+    local _depRunway = WE.getTakeoffPoint(_departureAirfield)
+
+    if _depRunway == nil then
+        WE.logError("BASE_ATTACK: could not determine a takeoff point at %s - event cancelled", _depName)
+        trigger.action.outText("Base Attack event could not start: no usable runway at departure airfield!", 10)
+        return
+    end
+
+    WE.logInfo("BASE_ATTACK: takeoff spawn at %s x=%.0f z=%.0f alt=%.0f heading=%.2f rad", _depName, _depRunway.x,
+        _depRunway.z, _depRunway.y, _depRunway.heading)
+
     WE.logInfo("BASE_ATTACK: departure=%s (id %s), destination=%s (id %s)", _depName, tostring(_depId), _destName,
         tostring(_destId))
 
@@ -111,7 +125,7 @@ function WE.EVENT.BASE_ATTACK()
             ["points"] = {
                 -- WAYPOINT 1: Takeoff / Departure (red) Airfield
                 [1] = {
-                    ["alt"] = _depPoint.y,
+                    ["alt"] = _depRunway.y,
                     ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
                     ["speed"] = 138.88888888889,
@@ -244,8 +258,8 @@ function WE.EVENT.BASE_ATTACK()
                     ["type"] = "TakeOff",
                     ["ETA"] = 0,
                     ["ETA_locked"] = true,
-                    ["y"] = _depPoint.z,
-                    ["x"] = _depPoint.x,
+                    ["y"] = _depRunway.z,
+                    ["x"] = _depRunway.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -341,17 +355,17 @@ function WE.EVENT.BASE_ATTACK()
         },
         ["units"] = {
             [1] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "field camo scheme #2 (native). 960th shap",
                 ["skill"] = "High",
                 ["speed"] = 138.88888888889,
                 ["type"] = "Su-25",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "010",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Grif-1-1",
                 ["payload"] = {
                     ["pylons"] = {
@@ -371,21 +385,21 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 128,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 103,
             },
             [2] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "field camo scheme #2 (native). 960th shap",
                 ["skill"] = "High",
                 ["speed"] = 138.88888888889,
                 ["type"] = "Su-25",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "011",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Grif-1-2",
                 ["payload"] = {
                     ["pylons"] = {
@@ -405,21 +419,21 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 128,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 104,
             },
             [3] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "field camo scheme #2 (native). 960th shap",
                 ["skill"] = "High",
                 ["speed"] = 138.88888888889,
                 ["type"] = "Su-25",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "012",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Grif-1-3",
                 ["payload"] = {
                     ["pylons"] = {
@@ -439,12 +453,12 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 128,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 105,
             },
         },
-        ["y"] = _depPoint.z,
-        ["x"] = _depPoint.x,
+        ["y"] = _depRunway.z,
+        ["x"] = _depRunway.x,
         ["name"] = "ShAP",
         ["communication"] = true,
         ["start_time"] = 0,
@@ -491,7 +505,7 @@ function WE.EVENT.BASE_ATTACK()
             ["points"] = {
                 -- WAYPOINT 1: Takeoff / Departure Airfield
                 [1] = {
-                    ["alt"] = _depPoint.y,
+                    ["alt"] = _depRunway.y,
                     ["action"] = "From Runway",
                     ["alt_type"] = "BARO",
                     ["speed"] = 220.97222222222,
@@ -595,8 +609,8 @@ function WE.EVENT.BASE_ATTACK()
                     ["type"] = "TakeOff",
                     ["ETA"] = 0,
                     ["ETA_locked"] = true,
-                    ["y"] = _depPoint.z,
-                    ["x"] = _depPoint.x,
+                    ["y"] = _depRunway.z,
+                    ["x"] = _depRunway.x,
                     ["speed_locked"] = true,
                     ["formation_template"] = "",
                 },
@@ -643,7 +657,7 @@ function WE.EVENT.BASE_ATTACK()
         },
         ["units"] = {
             [1] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "Excellent",
@@ -653,10 +667,10 @@ function WE.EVENT.BASE_ATTACK()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "010",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Sokol-21",
                 ["payload"] = {
                     ["pylons"] = {
@@ -673,11 +687,11 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 121,
             },
             [2] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -687,10 +701,10 @@ function WE.EVENT.BASE_ATTACK()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "011",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Sokol-22",
                 ["payload"] = {
                     ["pylons"] = {
@@ -707,11 +721,11 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 122,
             },
             [3] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -721,10 +735,10 @@ function WE.EVENT.BASE_ATTACK()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "012",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Sokol-23",
                 ["payload"] = {
                     ["pylons"] = {
@@ -741,11 +755,11 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 123,
             },
             [4] = {
-                ["alt"] = _depPoint.y,
+                ["alt"] = _depRunway.y,
                 ["alt_type"] = "BARO",
                 ["livery_id"] = "rf standard grey",
                 ["skill"] = "High",
@@ -755,10 +769,10 @@ function WE.EVENT.BASE_ATTACK()
                 },
                 ["type"] = "MiG-29 Fulcrum",
                 ["unitId"] = WE.getNextUnitId(),
-                ["psi"] = 0,
+                ["psi"] = _depRunway.heading,
                 ["onboard_num"] = "013",
-                ["y"] = _depPoint.z,
-                ["x"] = _depPoint.x,
+                ["y"] = _depRunway.z,
+                ["x"] = _depRunway.x,
                 ["name"] = "Sokol-24",
                 ["payload"] = {
                     ["pylons"] = {
@@ -775,12 +789,12 @@ function WE.EVENT.BASE_ATTACK()
                     ["chaff"] = 30,
                     ["gun"] = 100,
                 },
-                ["heading"] = 0,
+                ["heading"] = _depRunway.heading,
                 ["callsign"] = 124,
             },
         },
-        ["y"] = _depPoint.z,
-        ["x"] = _depPoint.x,
+        ["y"] = _depRunway.z,
+        ["x"] = _depRunway.x,
         ["name"] = "Sokol_Fighter_Wing",
         ["communication"] = true,
         ["start_time"] = 0,
