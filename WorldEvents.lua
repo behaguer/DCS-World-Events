@@ -3367,7 +3367,7 @@ WE.StrongholdCountry = country.id.RUSSIA
 
 --- How long (seconds) the stronghold mission lasts once it has been spawned.
 --- The mission fails if the timer reaches 0 before the stronghold is destroyed.
-WE.StrongholdDurationSeconds = 600
+WE.StrongholdDurationSeconds = 900
 
 --- Allow more than one Stronghold mission to run at the same time. When false
 --- only a single stronghold may be active, matching the rest of the World
@@ -3817,7 +3817,7 @@ function WE.captureStrongholdAirfield(_airbase)
         end
         WE.logInfo("Stronghold captured neutral airfield: %s", tostring(_airbase:getName()))
         trigger.action.outText(
-            string.format("STRONGHOLD CAPTURED: the stronghold has seized %s for the red coalition!",
+            string.format("The stronghold has seized %s for the red coalition!",
                 tostring(_airbase:getName())), 15)
     else
         WE.logWarning("Stronghold: Airbase.setCoalition not available, cannot capture %s",
@@ -3903,7 +3903,7 @@ function WE.endStrongholdEvent(_eventData, _result)
         if not _building or not _building:isExist() or _building:getLife() <= 0 then
             trigger.action.outText("The stronghold has been successfully destroyed, remaining troops have scattered.", 10)
         else
-            trigger.action.outText("FAILURE: Time ran out! The stronghold survived the attack.", 10)
+            trigger.action.outText("Time ran out! The stronghold survived the attack.", 10)
 
             -- The stronghold captures the nearby airfield and re-garrisons it
             local _airbase = _eventData.airbase
@@ -3918,7 +3918,7 @@ function WE.endStrongholdEvent(_eventData, _result)
                 if _redUnitCount < WE.StrongholdDefenseMinRedUnits then
                     WE.spawnStrongholdDefense(_airbase, _eventData.spawnId)
                     trigger.action.outText(
-                        "The stronghold has reinforced the captured airfield with tanks, APCs and SAM sites!", 15)
+                        "Be aware the stronghold has reinforced the captured airfield with tanks, APCs and SAM sites!", 15)
                 end
             end
         end
