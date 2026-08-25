@@ -80,7 +80,7 @@ WE.Debug = true   -- verbose "D" log lines in dcs.log
 WE.Trace = true   -- even more verbose "T" log lines
 
 WE.RadioUsers = {              -- group-name substrings allowed to see the menu
-    [1] = "Player",
+    [1] = "[Commander]",
     [2] = "[Patreon]",
     -- [3] = "All"             -- uncomment for "everyone gets the menu"
 }

@@ -81,7 +81,7 @@ WE.EVENT = {}
 WE.Debug = true
 WE.Trace = true
 WE.RadioUsers = { -- starting names of airframes that can access the radio menu
-    [1] = "Player",
+    [1] = "[Commander]",
     [2] = "[Patreon]",
     -- [3] = "All"
 }
