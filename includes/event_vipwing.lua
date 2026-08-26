@@ -20,6 +20,12 @@ WE.VIPEscortEngagementDistMax = 60000
 --- on the runway behind it rather than conflicting with the transport.
 WE.VIPFighterSpawnDelaySeconds = 15
 
+--- Minimum runway length (meters) required for the C-130J-30 to operate.
+--- Airfields with runways shorter than this are excluded from the VIP Wing event
+--- to avoid spawning a heavy transport that can never take off (e.g. small
+--- Syrian airfields like HSXX).
+WE.VIPMinRunwayLengthMeters = 1000
+
 --- Track the currently active VIP Wing event (departure/destination names, group ids)
 WE.currentVIPEvent = nil
 
@@ -29,25 +35,63 @@ function WE.getRedAirdromes()
     return WE.getAirdromes('red')
 end
 
---- Pick two different random red airdromes to use as departure and destination
+--- Check if an airbase has at least one runway long enough for the C-130.
+--- Uses Airbase:getRunways() to inspect actual runway lengths.
+--- @param _airbase Airbase the airbase to check
+--- @param _minLength number minimum runway length in meters
+--- @return boolean true if the airbase has a usable runway
+function WE.hasLongEnoughRunway(_airbase, _minLength)
+    if not _airbase or not _airbase.getRunways or type(_airbase.getRunways) ~= "function" then
+        return false
+    end
+
+    local _ok, _runways = pcall(function() return _airbase:getRunways() end)
+    if not _ok or type(_runways) ~= "table" or #_runways == 0 then
+        return false
+    end
+
+    for _, _rwy in ipairs(_runways) do
+        if (_rwy.length or 0) >= _minLength then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Pick two different random red airdromes to use as departure and destination.
+--- Only airfields with at least one runway meeting WE.VIPMinRunwayLengthMeters
+--- are eligible so the C-130J-30 can actually take off and land.
 --- @return Airbase|nil departure airbase
 --- @return Airbase|nil destination airbase
 function WE.pickVIPAirfields()
-    local _airdromes = WE.getRedAirdromes()
+    local _allAirdromes = WE.getRedAirdromes()
+    local _minLen = WE.VIPMinRunwayLengthMeters
 
-    if #_airdromes < 2 then
-        WE.logWarning("pickVIPAirfields: found only %d red airdrome(s) on this map, need at least 2", #_airdromes)
+    -- Filter to airfields with runways long enough for the C-130
+    local _suitable = {}
+    for _, _ab in ipairs(_allAirdromes) do
+        if WE.hasLongEnoughRunway(_ab, _minLen) then
+            table.insert(_suitable, _ab)
+        else
+            WE.logInfo("pickVIPAirfields: skipping %s (runway < %dm)", _ab:getName(), _minLen)
+        end
+    end
+
+    if #_suitable < 2 then
+        WE.logWarning("pickVIPAirfields: only %d suitable red airdrome(s) with runways >= %dm, need at least 2",
+            #_suitable, _minLen)
         return nil, nil
     end
 
-    local _depIndex = math.random(1, #_airdromes)
-    local _departure = _airdromes[_depIndex]
+    local _depIndex = math.random(1, #_suitable)
+    local _departure = _suitable[_depIndex]
 
     local _destIndex = _depIndex
     while _destIndex == _depIndex do
-        _destIndex = math.random(1, #_airdromes)
+        _destIndex = math.random(1, #_suitable)
     end
-    local _destination = _airdromes[_destIndex]
+    local _destination = _suitable[_destIndex]
 
     return _departure, _destination
 end
