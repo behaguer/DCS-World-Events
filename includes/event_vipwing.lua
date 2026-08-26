@@ -15,6 +15,11 @@ WE.VIPCountry = country.id.RUSSIA
 --- to the escorted transport before returning to escort duty.
 WE.VIPEscortEngagementDistMax = 60000
 
+--- Seconds to wait after the transport spawns before spawning the fighter escort.
+--- Gives the C-130 time to take off and clear the runway so the MiGs spawn
+--- on the runway behind it rather than conflicting with the transport.
+WE.VIPFighterSpawnDelaySeconds = 15
+
 --- Track the currently active VIP Wing event (departure/destination names, group ids)
 WE.currentVIPEvent = nil
 
@@ -94,7 +99,7 @@ function WE.EVENT.VIP_ESCORT()
     WE.logInfo("VIP_ESCORT: departure=%s (id %s), destination=%s (id %s)", _depName, tostring(_depId), _destName,
         tostring(_destId))
 
-    WE.logInfo("Spawning VIP Wing groups...")
+    WE.logInfo("Spawning VIP Transport group...")
 
     -- Reserve the transport's group id up front so the fighter escort task can reference it
     local _transportGroupId = WE.getNextGroupId()
@@ -233,8 +238,8 @@ function WE.EVENT.VIP_ESCORT()
     local _safeCruiseAlt = math.max(_cruiseAlt, _maxTerrainHeight + 500)
 
     -- VIP Fighter Escort Group (unit data from static template group "Vip_Wing_fighter").
-    -- Takes off from the same airfield and is tasked to escort the transport: stay
-    -- close to it, but break off to engage any air threat within engagement range.
+    -- Spawned on a timer after the transport so the C-130 takes off first and the
+    -- MiGs appear on the runway behind it in a staggered formation.
     local vipFighterGroup = {
         ["modulation"] = 0,
         ["tasks"] = {},
@@ -544,26 +549,41 @@ function WE.EVENT.VIP_ESCORT()
         ["frequency"] = 124,
     }
 
-    -- Spawn the fighter escort group
-    local fighterGroupId = coalition.addGroup(WE.VIPCountry, Group.Category.AIRPLANE, vipFighterGroup)
-    if fighterGroupId then
-        WE.logInfo("VIP Fighter Escort group spawned successfully with group ID: %s", tostring(fighterGroupId))
-    else
-        WE.logError("Failed to spawn VIP Fighter Escort group")
-        trigger.action.outText("Failed to spawn VIP Fighter Escort", 10)
-    end
-
     -- Mark event as active and remember the mission details for Event Status
     WE.is_active = 1
     WE.currentVIPEvent = {
         departure = _depName,
         destination = _destName,
         transportGroupId = _actualTransportGroupId,
-        fighterGroupId = fighterGroupId,
+        fighterGroupId = nil,
     }
 
-    WE.logInfo("VIP Wing event completed successfully - Transport ID: %s, Escort ID: %s",
-        tostring(_actualTransportGroupId), tostring(fighterGroupId))
+    -- Spawn the fighter escort on a timer so the C-130 takes off first.
+    -- Without this delay both groups fight over the same runway slot and
+    -- the transport ends up displaced to the parking lot.
+    local _fighterSpawnDelay = WE.VIPFighterSpawnDelaySeconds
+    WE.logInfo("VIP_ESCORT: fighter escort will spawn in %d seconds", _fighterSpawnDelay)
+
+    timer.scheduleFunction(function(_params, _time)
+        local _group = _params.group
+        local _country = _params.country
+
+        WE.logInfo("VIP_ESCORT: delayed fighter spawn firing now")
+        local fighterGroupObj = coalition.addGroup(_country, Group.Category.AIRPLANE, _group)
+        if fighterGroupObj then
+            local _fighterGroupId = fighterGroupObj:getID()
+            WE.logInfo("VIP Fighter Escort group spawned successfully with group ID: %s", tostring(_fighterGroupId))
+            if WE.currentVIPEvent then
+                WE.currentVIPEvent.fighterGroupId = _fighterGroupId
+            end
+        else
+            WE.logError("Failed to spawn VIP Fighter Escort group")
+            trigger.action.outText("Failed to spawn VIP Fighter Escort", 10)
+        end
+    end, { group = vipFighterGroup, country = WE.VIPCountry }, timer.getTime() + _fighterSpawnDelay)
+
+    WE.logInfo("VIP Wing event started - Transport ID: %s, fighter spawning in %ds",
+        tostring(_actualTransportGroupId), _fighterSpawnDelay)
 
     -- Communicate the airfields to all players so they know where to look
     trigger.action.outText(
