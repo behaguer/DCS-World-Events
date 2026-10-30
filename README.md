@@ -273,7 +273,10 @@ deadline expires.
 - **Route** · the start and destination points are random land positions
   near the two airfields. `WE.buildConvoyRoute()` creates a 3–5 point ground
   route, rejecting water and paved waypoints and nudging intermediate points
-  sideways when the direct line crosses water. Routes shorter than
+  sideways when the direct line crosses water. After waypoint generation, each
+  route segment is sampled in steps (`WE.ConvoyRouteSegmentCheckStepMeters`,
+  default 250 m) and rejected if any sampled point is water/paved, so island
+  routes only spawn when there is continuous land between waypoints. Routes shorter than
   `WE.ConvoyMinRouteDistanceMeters` (default 5000 m) are rejected, and long
   cross-map trips are filtered out before the convoy spawns.
 - **Units** · one moving ground group: `WE.ConvoyTruckCount` trucks

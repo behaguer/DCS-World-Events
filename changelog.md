@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   route labels remain visible even if line drawing fails
 - Convoy arrival failure now ends reliably when units reach the destination
   base area, with mission-failed messaging and route-mark cleanup
+- Convoy route generation now rejects any candidate route whose segment samples
+  cross water between waypoints, preventing island-to-island truck routes with
+  no drivable land connection
 
 ## [0.1.0] - 2026-08-03
 

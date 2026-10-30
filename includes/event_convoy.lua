@@ -56,6 +56,11 @@ WE.ConvoyMaxRouteDistanceMeters = 30 * 1852
 --- Number of route points including the start and destination (3-5 recommended).
 WE.ConvoyRoutePointCount = 4
 
+--- Max distance between validation samples when checking each route segment for
+--- water crossings. Lower values are stricter but cost more CPU while building
+--- candidate routes.
+WE.ConvoyRouteSegmentCheckStepMeters = 250
+
 --- List of currently active Convoy events, one entry per mission.
 WE.activeConvoyEvents = {}
 
@@ -131,10 +136,54 @@ end
 
 --- Build a simple 3-5 point ground route between two land points. Intermediate
 --- points are placed along the direct line; when a point falls on water or
---- pavement it is nudged sideways until a usable point is found.
+--- pavement it is nudged sideways until a usable point is found. Every segment
+--- is then sampled to ensure the route never crosses water between waypoints.
 --- @param _start table start point {x, y, z}
 --- @param _finish table finish point {x, y, z}
 --- @return table|nil list of route points, or nil when no usable route exists
+function WE.isConvoyRouteSegmentPassable(_fromPoint, _toPoint, _stepMeters)
+    if not _fromPoint or not _toPoint then
+        return false
+    end
+
+    local _dx = _toPoint.x - _fromPoint.x
+    local _dz = _toPoint.z - _fromPoint.z
+    local _distance = math.sqrt(_dx * _dx + _dz * _dz)
+    local _step = math.max(50, _stepMeters or WE.ConvoyRouteSegmentCheckStepMeters or 250)
+    local _sampleCount = math.max(1, math.ceil(_distance / _step))
+
+    for _i = 0, _sampleCount do
+        local _t = _i / _sampleCount
+        local _sample = {
+            x = _fromPoint.x + (_dx * _t),
+            y = 0,
+            z = _fromPoint.z + (_dz * _t),
+        }
+        if not WE.isConvoyRoutePoint(_sample) then
+            return false
+        end
+    end
+
+    return true
+end
+
+--- Check that every segment in the route remains on valid convoy terrain.
+--- @param _route table route points
+--- @return boolean true when all route segments pass validation
+function WE.isConvoyRoutePassable(_route)
+    if not _route or #_route < 2 then
+        return false
+    end
+
+    for _i = 1, #_route - 1 do
+        if not WE.isConvoyRouteSegmentPassable(_route[_i], _route[_i + 1]) then
+            return false
+        end
+    end
+
+    return true
+end
+
 function WE.buildConvoyRoute(_start, _finish)
     if not _start or not _finish then return nil end
 
@@ -183,6 +232,9 @@ function WE.buildConvoyRoute(_start, _finish)
     end
 
     table.insert(_points, _finish)
+    if not WE.isConvoyRoutePassable(_points) then
+        return nil
+    end
     return _points
 end
 
