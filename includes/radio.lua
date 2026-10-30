@@ -3,6 +3,23 @@
 --- Radio menu references for World Events
 WE.radioMenu = {}
 
+--- Event-specific status text providers, keyed by event name. Each provider is
+--- called when the Event Status radio command runs and returns a display string
+--- (or nil when that event has nothing to report).
+WE.eventStatusProviders = {}
+
+--- Register a status text provider for an event. Modules call this at load time
+--- so WE.showEventStatusAction does not need to know about each event type.
+--- @param _eventName string event key (matches WE.EnabledEvents)
+--- @param _provider function returns a string or nil
+function WE.registerEventStatus(_eventName, _provider)
+    if not _eventName or type(_provider) ~= "function" then
+        WE.logWarning("registerEventStatus: invalid event name or provider")
+        return
+    end
+    WE.eventStatusProviders[_eventName] = _provider
+end
+
 --- Check if group has access to radio commands
 --- @param groupName string the name of the aircraft group
 --- @return boolean true if group has access, false otherwise
@@ -212,19 +229,13 @@ function WE.showEventStatusAction()
     local statusMessage = ""
     if WE.is_active == 1 then
         statusMessage = "World Event Status: ACTIVE\n\nAn event is currently running. Check the F10 map for event details."
-        if WE.currentVIPEvent then
-            statusMessage = statusMessage .. string.format("\n\nVIP Escort: departed %s, en route to %s.",
-                tostring(WE.currentVIPEvent.departure), tostring(WE.currentVIPEvent.destination))
-        end
-        if WE.currentBaseAttackEvent then
-            statusMessage = statusMessage .. string.format("\n\nBase Attack: departed %s, attacking %s.",
-                tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
-        end
-        if #WE.activeStrongholdEvents > 0 then
-            for _i, _eventData in ipairs(WE.activeStrongholdEvents) do
-                local _remaining = math.max(0, math.ceil(_eventData.endsAt - timer.getTime()))
-                statusMessage = statusMessage .. string.format("\n\nStronghold %d: located near %s, %d seconds remaining.",
-                    _i, tostring(_eventData.area), _remaining)
+        for _, _eventName in ipairs(WE.getEnabledEventNames()) do
+            local _provider = WE.eventStatusProviders[_eventName]
+            if _provider then
+                local _text = _provider()
+                if _text and _text ~= "" then
+                    statusMessage = statusMessage .. "\n\n" .. _text
+                end
             end
         end
     else

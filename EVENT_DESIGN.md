@@ -9,7 +9,7 @@
 ## 0. How to use this document
 
 1. Read `AGENTS.md` for the current build/runtime contract.
-2. Complete **Phase 0 — shared helper refactor** once (section 2).
+2. Phase 0 — shared helper refactor is **complete** (section 2); start with a new event.
 3. Pick the next event from section 4 in the recommended order.
 4. Create the module, add it to the registry/config, implement, build, and test.
 5. Update `README.md`, `SITUATION_BRIEFING.md`, `changelog.md`, and this file.
@@ -28,7 +28,7 @@
 
 | Order | Event key | Module | Main roles | Complexity | Depends on |
 |---|---|---|---|---|---|
-| 0 | — | shared helpers | — | Medium | — |
+| 0 | — | shared helpers (DONE) | — | Medium | — |
 | 1 | `CONVOY` | `event_convoy.lua` | Strike/CAS, SEAD, CAP | Medium | Phase 0 |
 | 2 | `IADS` | `event_iads.lua` | SEAD/DEAD, CAP, recon | Medium | Phase 0 |
 | 3 | `CSAR` | `event_csar.lua` | Helicopter, escort/CAS, CAP | Medium | Phase 0 + zone helper |
@@ -100,28 +100,30 @@ world.addEventHandler(WE.EVENT.CONVOYEVENT)
 
 ## 2. Phase 0 — shared helpers and performance rules
 
-Do this **before** implementing the first new event. It avoids duplicating
-Stronghold's ground-spawn/placement logic in every module and keeps new modules
-independent of registry order.
+**Status: DONE (2026-10-30).** The refactor is complete and `WorldEvents.lua`
+has been rebuilt. Event work can start at section 4.
 
-### 2.1 Move reusable helpers into `utility.lua`
+It avoids duplicating Stronghold's ground-spawn/placement logic in every module
+and keeps new modules independent of registry order.
 
-Currently these live in `includes/event_stronghold.lua` but are generic:
+### 2.1 Reusable helpers moved into `utility.lua`
 
-| Helper | Action |
+These now live in `includes/utility.lua` and are available to every event:
+
+| Helper | Status |
 |---|---|
-| `WE.isPointOnLand(point)` | Move to `utility.lua` unchanged |
-| `WE.isPointFlat(point, radius)` | Move to `utility.lua` unchanged |
-| `WE.randomLandPoint(x, z, min, max, attempts)` | Move to `utility.lua` unchanged |
-| `WE.randomLandOffsetNear(x, z, maxOffset)` | Move to `utility.lua` unchanged |
-| `WE.getRunwaySegments(airbase)` | Move to `utility.lua` unchanged |
-| `WE.minDistanceToRunway(segments, point)` | Move to `utility.lua` unchanged |
-| `WE.distanceToSegmentXY(ax, az, bx, bz, point)` | Move to `utility.lua` unchanged |
-| `WE.buildStationaryGroundGroup(name, groupId, x, z, units)` | Move to `utility.lua` unchanged |
-| `WE.buildStrongholdUnit(...)` | Move and rename to `WE.buildGroundUnit(...)` |
-| `WE.areAllStrongholdUnitsDead(eventData)` | Move and generalize to `WE.areAllUnitsDead(unitNames)` |
-| `WE.countRedGroundUnitsNear(point, radius, excludedNames)` | Move and generalize to `WE.countUnitsInRadius(side, point, radius, category, excludedNames)` |
-| `WE.destroyGroupList(groups)` | Move to `utility.lua` unchanged |
+| `WE.isPointOnLand(point)` | Moved to `utility.lua` |
+| `WE.isPointFlat(point, radius, maxSlope)` | Moved; `maxSlope` is now an explicit optional parameter |
+| `WE.randomLandPoint(x, z, min, max, attempts)` | Moved to `utility.lua` |
+| `WE.randomLandOffsetNear(x, z, maxOffset)` | Moved to `utility.lua` |
+| `WE.getRunwaySegments(airbase)` | Moved to `utility.lua` |
+| `WE.minDistanceToRunway(segments, point)` | Moved to `utility.lua` |
+| `WE.distanceToSegmentXY(ax, az, bx, bz, point)` | Moved to `utility.lua` |
+| `WE.buildStationaryGroundGroup(name, groupId, x, z, units)` | Moved to `utility.lua` |
+| `WE.buildGroundUnit(...)` | Renamed from `WE.buildStrongholdUnit` |
+| `WE.areAllUnitsDead(unitNames)` | Generalized from `WE.areAllStrongholdUnitsDead` |
+| `WE.countUnitsInRadius(side, point, radius, category, excludedNames)` | Generalized from `WE.countRedGroundUnitsNear` |
+| `WE.destroyGroupList(groups)` | Moved to `utility.lua` |
 
 Keep Stronghold-specific logic in `event_stronghold.lua`:
 `getUsedStrongholdAirdromes`, `pickStrongholdLocation`,
@@ -129,15 +131,15 @@ Keep Stronghold-specific logic in `event_stronghold.lua`:
 `spawnStrongholdDefense`, `destroyStrongholdUnits`, `endStrongholdEvent`,
 `strongholdCountdownTick`.
 
-### 2.2 Add shared helpers
+### 2.2 Shared helper state
 
-Add to `state.lua`:
+Added to `state.lua`:
 
 ```lua
 WE.nextMarkId = 1000
 ```
 
-Add to `utility.lua`:
+Added to `utility.lua`:
 
 ```lua
 function WE.getNextMarkId()
@@ -146,13 +148,12 @@ function WE.getNextMarkId()
 end
 ```
 
-Then refactor Stronghold's mark ID from `-(1000 + spawnId)` to
-`WE.getNextMarkId()` so new event types cannot collide with Stronghold marks.
+Stronghold now uses `WE.getNextMarkId()` instead of `-(1000 + spawnId)` so new
+event types cannot collide with Stronghold marks.
 
-### 2.3 Recommended status-provider refactor
+### 2.3 Status-provider registry
 
-Five new event types would make `WE.showEventStatusAction` large and fragile.
-Add a small registry in `radio.lua`:
+Implemented in `radio.lua`:
 
 ```lua
 WE.eventStatusProviders = {}
@@ -162,10 +163,9 @@ function WE.registerEventStatus(eventKey, provider)
 end
 ```
 
-`WE.showEventStatusAction` should iterate the providers and append their output.
-Each event module registers a provider at load time. If you do not want this
-refactor yet, add a clearly separated branch in `showEventStatusAction` and keep
-the status logic in the event module.
+`WE.showEventStatusAction` iterates the enabled events' providers and appends
+their output. `VIP_ESCORT`, `BASE_ATTACK`, and `STRONGHOLD` register providers at
+load time; new events should do the same instead of editing `radio.lua`.
 
 ### 2.4 Performance rules for all new events
 
@@ -194,13 +194,14 @@ the status logic in the event module.
 
 ### 2.5 Phase 0 acceptance criteria
 
-- [ ] All moved helpers are available from `utility.lua`.
-- [ ] Stronghold still spawns, counts defenders, captures airfields, and
-  removes marks after the refactor.
-- [ ] `WE.getNextMarkId()` is used by Stronghold and produces unique negative
+- [x] All moved helpers are available from `utility.lua`.
+- [x] Stronghold still uses the same spawn/count/capture/mark paths after the
+  refactor.
+- [x] `WE.getNextMarkId()` is used by Stronghold and produces unique negative
   IDs.
-- [ ] `build.ps1` completes and Stronghold passes an in-game smoke test.
-- [ ] No new event modules were added yet.
+- [x] `build.ps1` completes; LuaLS reports no syntax errors.
+- [ ] Stronghold in-game smoke test in DCS (manual, requires a running mission).
+- [x] No new event modules were added yet.
 
 ---
 
@@ -910,13 +911,13 @@ remaining.`
 
 ## 5. Recommended development sequence
 
-### Phase 0 — Shared refactor (no gameplay change)
+### Phase 0 — Shared refactor (no gameplay change) — DONE
 
-- Move generic helpers from `event_stronghold.lua` to `utility.lua`.
-- Add `WE.getNextMarkId()` and refactor Stronghold marks.
-- Add `WE.countUnitsInRadius` and `WE.areAllUnitsDead`.
-- Optional: add `WE.registerEventStatus` and refactor status output.
-- Build and smoke-test Stronghold.
+- Moved generic helpers from `event_stronghold.lua` to `utility.lua`.
+- Added `WE.getNextMarkId()` and refactored Stronghold marks.
+- Added `WE.countUnitsInRadius` and `WE.areAllUnitsDead`.
+- Added `WE.registerEventStatus` and refactored status output.
+- Rebuilt `WorldEvents.lua`; in-game Stronghold smoke test remains manual.
 
 ### Phase 1 — `CONVOY`
 
@@ -958,7 +959,7 @@ An event is complete only when all of these are true:
 - [ ] Unique group/unit names and real IDs after `coalition.addGroup`.
 - [ ] F10 marks use `WE.getNextMarkId()` and are removed on end.
 - [ ] All timers stop when the event ends.
-- [ ] Status report added.
+- [ ] Status provider registered with `WE.registerEventStatus`.
 - [ ] Sound asset added (`attn_<event>.ogg`) or sound intentionally omitted.
 - [ ] `build.ps1` completes successfully.
 - [ ] In-game test passes on at least one map.

@@ -834,6 +834,14 @@ function WE.EVENT.BASE_ATTACK()
     trigger.action.outSound("attn_attack.ogg")
 end
 
+WE.registerEventStatus("BASE_ATTACK", function()
+    if not WE.currentBaseAttackEvent then
+        return nil
+    end
+    return string.format("Base Attack: departed %s, attacking %s.",
+        tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
+end)
+
 -- Create a table to hold our custom event handler
 WE.EVENT.BASEATTACK = {}
 

@@ -639,6 +639,14 @@ function WE.EVENT.VIP_ESCORT()
     trigger.action.outSound("attn_vip.ogg")
 end
 
+WE.registerEventStatus("VIP_ESCORT", function()
+    if not WE.currentVIPEvent then
+        return nil
+    end
+    return string.format("VIP Escort: departed %s, en route to %s.",
+        tostring(WE.currentVIPEvent.departure), tostring(WE.currentVIPEvent.destination))
+end)
+
 -- Create a table to hold our custom event handler
 WE.EVENT.VIPWING = {}
 

@@ -5,6 +5,32 @@ All notable changes to DCS-WORLD-EVENTS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-10-30
+
+### Added
+- Shared ground/terrain helpers in `includes/utility.lua` for all events:
+  `WE.isPointOnLand`, `WE.isPointFlat`, `WE.randomLandPoint`,
+  `WE.randomLandOffsetNear`, `WE.getRunwaySegments`, `WE.minDistanceToRunway`,
+  `WE.distanceToSegmentXY`, `WE.buildStationaryGroundGroup`,
+  `WE.buildGroundUnit`, `WE.areAllUnitsDead`, `WE.countUnitsInRadius`,
+  `WE.destroyGroupList`, and `WE.getNextMarkId`
+- `WE.nextMarkId` in `includes/state.lua` for collision-free negative F10 marks
+- Event status-provider registry (`WE.registerEventStatus`) in `includes/radio.lua`;
+  existing events now register their own providers
+
+### Changed
+- Stronghold now uses the shared helpers instead of defining them locally
+- Stronghold F10 marks use `WE.getNextMarkId()` instead of `-(1000 + spawnId)`
+- Event status output no longer hard-codes each event type in
+  `WE.showEventStatusAction`
+- README corrected Stronghold defaults (900 s / 15 minutes, multiple missions
+  enabled by default) and documented the shared helpers and status providers
+- `AGENTS.md` and `EVENT_DESIGN.md` updated for the completed Phase 0 refactor
+
+### Fixed
+- F10 mark ids can no longer collide between Stronghold missions and future
+  event types
+
 ## [0.1.0] - 2026-08-03
 
 ### Added

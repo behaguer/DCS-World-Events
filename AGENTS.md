@@ -30,8 +30,8 @@ includes/                 Source modules (authoritative code)
   types.lua               LuaCATS DCS type annotations (no runtime code)
   config.lua              User-tunable settings + enabled events/order
   state.lua               Runtime counters + event registries
-  utility.lua             Logging + math/geometry + legacy cargo subsystem
-  radio.lua               F10 menu construction + spawn/status actions
+  utility.lua             Logging + math/geometry + shared ground/terrain spawn helpers + legacy cargo subsystem
+  radio.lua               F10 menu construction + spawn/status actions + status-provider registry
   event.lua               Player join/leave menu lifecycle + event bookkeeping stubs
   event_vipwing.lua       VIP Escort event + handler
   event_baseattack.lua    Base Attack event + handler
@@ -117,7 +117,8 @@ init.lua
 3. Add the event key to `WE.EnabledEvents` and `WE.EventOrder` in `includes/config.lua`.
 4. Define `WE.EVENT.<KEY>()` (the spawn function).
 5. Optionally define a handler table + `world.addEventHandler(...)` for win/lose detection.
-6. Update `WE.showEventStatusAction` in `radio.lua` if the event should report status.
+6. Register a status provider with `WE.registerEventStatus("<KEY>", provider)` if the event
+   should report status (no need to edit `WE.showEventStatusAction`).
 7. Rebuild with `build.ps1`.
 8. The radio menu auto-generates from config — no menu code changes needed.
 
@@ -164,15 +165,22 @@ so all event handlers are registered regardless of `WE.initialize()`.
 | `WE.getTakeoffPoint(airbase)` | Runway-aligned takeoff `{x,z,y,heading}`; falls back to airbase point |
 | `WE.getMaxTerrainHeight(x1,z1,x2,z2,n)` | Max terrain height along a line (safe cruise altitude) |
 | `WE.getDistance(p1,p2)` | Flat x/z distance |
-| `WE.getNextUnitId()` / `WE.getNextGroupId()` | Monotonic ID generators from state |
+| `WE.getNextUnitId()` / `WE.getNextGroupId()` / `WE.getNextMarkId()` | Monotonic ID generators from state; mark IDs are negative |
 | `WE.getEnabledEventNames()` | Enabled events in `WE.EventOrder` order, extras appended |
 | `WE.getEventDisplayName(key)` | `"BASE_ATTACK"` → `"BASE ATTACK"` |
 | `WE.spawnEventMenuAction(name)` | Shared radio action: validates, calls `WE.EVENT[name]()` |
-| `WE.showEventStatusAction()` | Radio "Event Status" report |
+| `WE.showEventStatusAction()` | Radio "Event Status" report; calls registered providers |
+| `WE.registerEventStatus(key, provider)` | Register an event-specific status text function |
 | `WE.hasRadioAccess(groupName)` | Substring match against `WE.RadioUsers`; `"All"` grants everyone |
 | `WE.addEvent` / `WE.removeEvent` | Bookkeeping stubs over `WE.events` (not central to spawning) |
 
-Geometry helpers in `utility.lua`: `getPointAt12Oclock`, `getPointAt6Oclock`,
+Shared ground/terrain helpers in `utility.lua` (available to every event module):
+`WE.isPointOnLand`, `WE.isPointFlat`, `WE.randomLandPoint`, `WE.randomLandOffsetNear`,
+`WE.getRunwaySegments`, `WE.minDistanceToRunway`, `WE.distanceToSegmentXY`,
+`WE.buildStationaryGroundGroup`, `WE.buildGroundUnit`, `WE.areAllUnitsDead`,
+`WE.countUnitsInRadius`, `WE.destroyGroupList`.
+
+Other geometry helpers in `utility.lua`: `getPointAt12Oclock`, `getPointAt6Oclock`,
 `getPointAtDirection`, `getRelativePoint`, `getCentroid`, `countTableEntries`,
 `findNearestEnemy`/`findNearestGroup` (used only by legacy cargo code), etc.
 
@@ -204,9 +212,11 @@ Geometry helpers in `utility.lua`: `getPointAt12Oclock`, `getPointAt6Oclock`,
 ```lua
 WE.nextUnitId = 1
 WE.nextGroupId = 1
+WE.nextMarkId = 1000        -- getNextMarkId() returns -(nextMarkId + 1)
 WE.is_active = 0            -- global single-event lock (stronghold shares it)
 WE.eventHandlers = {}
 WE.events = {}
+WE.eventStatusProviders = {} -- event key -> status text provider
 ```
 
 Per-event state:
@@ -214,7 +224,8 @@ Per-event state:
 - `WE.currentBaseAttackEvent = { departure, destination, attackCASGroupGroupId, fighterGroupId }`
 - `WE.activeStrongholdEvents = { [1] = { area, point, airbase, duration, spawnedAt, endsAt,
   unitNames, groups, markId, spawnId, buildingUnitName, ended, lastAnnouncedMinutes }, ... }`
-- `WE.strongholdSpawnCounter` for unique names/negative mark IDs.
+- `WE.strongholdSpawnCounter` for unique group/unit names; F10 marks use
+  `WE.getNextMarkId()`.
 
 `WE.is_active` is a **single global flag**. For strongholds it stays `1` while any
 stronghold mission is active and clears only when the list is empty.
@@ -270,7 +281,6 @@ stronghold mission is active and clears only when the list is empty.
   `StrongholdOffsetMin/Max = 4630/7408`, `StrongholdRunwayMinDistance = 4630`,
   `StrongholdMaxSlope = 3`, defense T-72B3 ×3 / BTR-80 ×2 / Strela-10M3 ×2,
   defense radius 5000 m, min existing red units 4, defense spawn 300–1500 m.
-  > README's config example says 600 s; **code uses 900 s**. Trust the code.
 - Location: random **red or neutral** airdrome (never blue), excluding airdromes already
   hosting an active stronghold (`getUsedStrongholdAirdromes`). Random offset/bearing;
   spawn must be on land (rejects WATER, SHALLOW_WATER, RUNWAY/pavement, ROAD), at least
@@ -305,7 +315,8 @@ stronghold mission is active and clears only when the list is empty.
 - **Reserve IDs** with `WE.getNextGroupId()` when building a group table, then use the
   returned object's real ID for cross-references.
 - **State + status.** Store enough in a `WE.current<Event>`/`WE.active<Event>s` table for
-  `WE.showEventStatusAction` and for the event's own handler.
+  the event's own handler and status provider; register the provider with
+  `WE.registerEventStatus("<KEY>", provider)` at module load.
 - **Concurrency.** Respect `WE.is_active`; if your event supports multiple instances, follow
   the stronghold model (own list, unique spawn IDs, per-instance timer/win logic, clear the
   global flag only when the list empties).
@@ -349,12 +360,12 @@ unit types/counts, timers, etc.).
 
 - **Compiled output is generated.** Do not hand-edit `WorldEvents.lua`; rebuild from
   `includes/` with `build.ps1` (or run `extract.ps1` if you must adopt direct edits).
-- **Docs:** `README.md`, `SITUATION_BRIEFING.md`, and `changelog.md` are kept in sync with
-  the code (Stronghold duration is 900 s / 15 min, and state uses
+- **Docs:** `README.md`, `SITUATION_BRIEFING.md`, `changelog.md`, and `EVENT_DESIGN.md` are
+  kept in sync with the code (Stronghold duration is 900 s / 15 min, and state uses
   `WE.activeStrongholdEvents`). Update them when behavior/config changes.
 - **Planned events:** `EVENT_DESIGN.md` holds implementation-ready designs for `CONVOY`,
-  `IADS`, `CSAR`, `BASE_DEFENSE`, and `FARP_CAPTURE`, including the required Phase 0
-  shared-helper refactor. Follow it one event at a time and keep its status table current.
+  `IADS`, `CSAR`, `BASE_DEFENSE`, and `FARP_CAPTURE`. Phase 0 (shared helper refactor) is
+  complete; follow the file one event at a time and keep its status table current.
 - **Missing sound:** `radio.lua` plays `"vip-enroute.wav"`, but `assets/` only contains
   `attn_vip.ogg`, `attn_attack.ogg`, `attn_stronghold.ogg`. Adjust or add the file if needed.
 - **Legacy cargo subsystem in `utility.lua` is inactive.** Functions for troop transport,
@@ -382,7 +393,8 @@ unit types/counts, timers, etc.).
 | Create a new event | `EVENT_DESIGN.md`, then new `includes/event_<name>.lua` + registry + config |
 | Plan or track a new event | `EVENT_DESIGN.md` |
 | Change radio access | `WE.RadioUsers` in `config.lua` |
-| Change status report text | `WE.showEventStatusAction` in `radio.lua` |
+| Change an event's status text | its `WE.registerEventStatus` provider |
+| Change shared status behavior | `WE.showEventStatusAction` in `radio.lua` |
 | Change player menu lifecycle | `event.lua` |
 | Change VIP/base/stronghold behavior | corresponding `event_*.lua` |
 | Add/modify shared helpers | `utility.lua` |

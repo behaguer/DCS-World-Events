@@ -274,6 +274,317 @@ function WE.getMaxTerrainHeight(x1, z1, x2, z2, numSamples)
     return _maxH
 end
 
+--- Get the next unique negative F10 mark id. Negative ids keep dynamically
+--- created marks from colliding with marks placed in the mission editor.
+--- @return number next mark id
+function WE.getNextMarkId()
+    WE.nextMarkId = WE.nextMarkId + 1
+    return -WE.nextMarkId
+end
+
+--- Check whether a point is usable for a ground spawn: it must not be water,
+--- must not be paved airfield surface, and must not be on a road. DCS reports
+--- runways, taxiways, ramps and aprons all as land.SurfaceType.RUNWAY, and roads
+--- as land.SurfaceType.ROAD, so this check alone guarantees the point is never
+--- on any pavement.
+--- @param _point table point {x, y, z}
+--- @return boolean true when the point is not water and not paved
+function WE.isPointOnLand(_point)
+    local _surfaceType = land.getSurfaceType({ x = _point.x, y = _point.z })
+    if not _surfaceType then
+        return false
+    end
+    if _surfaceType == land.SurfaceType.WATER or _surfaceType == land.SurfaceType.SHALLOW_WATER then
+        return false
+    end
+    if land.SurfaceType.RUNWAY and _surfaceType == land.SurfaceType.RUNWAY then
+        return false
+    end
+    if land.SurfaceType.ROAD and _surfaceType == land.SurfaceType.ROAD then
+        return false
+    end
+    return true
+end
+
+--- Check that the terrain around _point is flat enough for a ground spawn (no
+--- cliffs, ravines or steep slopes). Samples the terrain height at the point and
+--- at a small offset in each direction.
+--- @param _point table point {x, y, z}
+--- @param _sampleRadius number|nil distance (meters) to sample around the point
+--- @param _maxSlope number|nil maximum allowed height difference (meters)
+--- @return boolean true when the terrain is flat enough
+function WE.isPointFlat(_point, _sampleRadius, _maxSlope)
+    _sampleRadius = _sampleRadius or 30
+    _maxSlope = _maxSlope or 3
+    local _height = land.getHeight({ x = _point.x, y = _point.z })
+    local _offsets = {
+        { _sampleRadius, 0 },
+        { -_sampleRadius, 0 },
+        { 0, _sampleRadius },
+        { 0, -_sampleRadius },
+    }
+    for _, _offset in ipairs(_offsets) do
+        local _sampleHeight = land.getHeight({ x = _point.x + _offset[1], y = _point.z + _offset[2] })
+        if math.abs(_sampleHeight - _height) > _maxSlope then
+            return false
+        end
+    end
+    return true
+end
+
+--- Pick a random point between _min and _max meters from (_x, _z) on a random
+--- bearing that is on land (not water and not paved).
+--- @param _x number anchor east coordinate
+--- @param _z number anchor north coordinate
+--- @param _min number minimum distance in meters
+--- @param _max number maximum distance in meters
+--- @param _attempts number|nil retry attempts (default 10)
+--- @return table|nil point {x, y, z}, or nil when no land point was found
+function WE.randomLandPoint(_x, _z, _min, _max, _attempts)
+    _attempts = _attempts or 10
+    if _min > _max then
+        WE.logWarning("randomLandPoint: _min (%d) > _max (%d), swapping", _min, _max)
+        _min, _max = _max, _min
+    end
+    local _point = { x = _x, y = 0, z = _z }
+    for _ = 1, _attempts do
+        local _bearing = math.random() * math.pi * 2
+        local _distance = math.random(_min, _max)
+        _point.x = _x + math.cos(_bearing) * _distance
+        _point.z = _z + math.sin(_bearing) * _distance
+        if WE.isPointOnLand(_point) then
+            return _point
+        end
+    end
+    return nil
+end
+
+--- Random offset within _maxOffset meters of (_x, _z) that is on land. Falls
+--- back to the anchor point when no land offset is found.
+--- @param _x number anchor east coordinate
+--- @param _z number anchor north coordinate
+--- @param _maxOffset number maximum offset in meters
+--- @return number x, number z
+function WE.randomLandOffsetNear(_x, _z, _maxOffset)
+    for _ = 1, 5 do
+        local _ux = _x + math.random(-_maxOffset, _maxOffset)
+        local _uz = _z + math.random(-_maxOffset, _maxOffset)
+        if WE.isPointOnLand({ x = _ux, y = 0, z = _uz }) then
+            return _ux, _uz
+        end
+    end
+    return _x, _z
+end
+
+--- Extract a flat list of runway segments from an airbase. Each entry is a
+--- { x1, z1, x2, z2, halfWidth } array, ready for repeated distance checks
+--- without re-querying the airbase. Returns nil when there are no runways.
+--- @param _airbase Airbase
+--- @return table|nil list of runway segment arrays
+function WE.getRunwaySegments(_airbase)
+    if not _airbase.getRunways or type(_airbase.getRunways) ~= "function" then
+        return nil
+    end
+    local _runways = _airbase:getRunways()
+    if not _runways or #_runways == 0 then
+        return nil
+    end
+    local _segments = {}
+    for _, _runway in ipairs(_runways) do
+        local _end1, _end2 = _runway.end1, _runway.end2
+        if _end1 and _end2 then
+            table.insert(_segments, {
+                _end1.x, _end1.z, _end2.x, _end2.z, (_runway.width or 0) / 2,
+            })
+        end
+    end
+    if #_segments == 0 then
+        return nil
+    end
+    return _segments
+end
+
+--- Minimum distance (meters) from a point to any runway segment produced by
+--- WE.getRunwaySegments, measured perpendicular to each full segment and reduced
+--- by its half width so the runway surface itself counts as distance 0. Returns
+--- math.huge when _segments is nil (no runway to avoid).
+--- @param _segments table|nil runway segment list
+--- @param _point table point {x, y, z}
+--- @return number minimum distance in meters
+function WE.minDistanceToRunway(_segments, _point)
+    if not _segments then
+        return math.huge
+    end
+    local _min = math.huge
+    for _, _seg in ipairs(_segments) do
+        local _distance = WE.distanceToSegmentXY(_seg[1], _seg[2], _seg[3], _seg[4], _point)
+        _distance = math.max(0, _distance - _seg[5])
+        if _distance < _min then
+            _min = _distance
+        end
+    end
+    return _min
+end
+
+--- Shortest distance (meters) from a point to a line segment, measured in the
+--- horizontal x/z plane. Takes raw coordinates to avoid per-call table churn.
+--- @param _ax number segment start x
+--- @param _az number segment start z
+--- @param _bx number segment end x
+--- @param _bz number segment end z
+--- @param _point table point {x, y, z}
+--- @return number distance in meters
+function WE.distanceToSegmentXY(_ax, _az, _bx, _bz, _point)
+    local _dx = _bx - _ax
+    local _dz = _bz - _az
+    local _lenSq = _dx * _dx + _dz * _dz
+    if _lenSq == 0 then
+        local _dpx = _point.x - _ax
+        local _dpz = _point.z - _az
+        return math.sqrt(_dpx * _dpx + _dpz * _dpz)
+    end
+
+    local _t = ((_point.x - _ax) * _dx + (_point.z - _az) * _dz) / _lenSq
+    if _t < 0 then
+        _t = 0
+    elseif _t > 1 then
+        _t = 1
+    end
+
+    local _cx = _ax + _t * _dx
+    local _cz = _az + _t * _dz
+    local _dpx = _point.x - _cx
+    local _dpz = _point.z - _cz
+    return math.sqrt(_dpx * _dpx + _dpz * _dpz)
+end
+
+--- Build a stationary ground group table for DCS.
+--- Ground group positions use x/y where y is the north coordinate.
+--- @param _name string group name
+--- @param _groupId number group id
+--- @param _x number east coordinate
+--- @param _z number north coordinate
+--- @param _units table unit definitions
+--- @return table ground group table
+function WE.buildStationaryGroundGroup(_name, _groupId, _x, _z, _units)
+    return {
+        ["modulation"] = 0,
+        ["tasks"] = {},
+        ["task"] = "Ground Nothing",
+        ["uncontrolled"] = false,
+        ["hidden"] = false,
+        ["route"] = {
+            ["points"] = {
+                [1] = {
+                    ["name"] = "UNIT",
+                    ["type"] = "Turning Point",
+                    ["ETA"] = 0,
+                    ["speed"] = 10,
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = { ["tasks"] = {} },
+                    },
+                    ["y"] = _z,
+                    ["x"] = _x,
+                },
+            },
+        },
+        ["units"] = _units,
+        ["y"] = _z,
+        ["x"] = _x,
+        ["name"] = _name,
+        ["start_time"] = 0,
+        ["groupId"] = _groupId,
+    }
+end
+
+--- Build a single-unit definition table for a stationary ground unit.
+--- @param _unitName string unit name (must be unique per spawn)
+--- @param _unitType string DCS unit type
+--- @param _x number east coordinate
+--- @param _z number north coordinate
+--- @param _heading number heading in degrees
+--- @return table unit definition
+function WE.buildGroundUnit(_unitName, _unitType, _x, _z, _heading)
+    return {
+        ["type"] = _unitType,
+        ["unitId"] = WE.getNextUnitId(),
+        ["name"] = _unitName,
+        ["x"] = _x,
+        ["y"] = _z,
+        ["heading"] = _heading,
+        ["skill"] = "Excellent",
+    }
+end
+
+--- Check whether every unit in a set of tracked unit names has been destroyed.
+--- @param _unitNames table|nil set of unit names (name = true)
+--- @return boolean true when all tracked units are dead
+function WE.areAllUnitsDead(_unitNames)
+    if not _unitNames then
+        return true
+    end
+    for _name, _ in pairs(_unitNames) do
+        local _unit = Unit.getByName(_name)
+        if _unit and _unit:isExist() and _unit:getLife() > 0 then
+            return false
+        end
+    end
+    return true
+end
+
+--- Count alive units of a coalition and category within _radius meters of
+--- _point, excluding any units whose names appear in _excludedNames.
+--- @param _side number coalition.side value
+--- @param _point table point {x, y, z}
+--- @param _radius number search radius in meters
+--- @param _category number|nil Group.Category value (default GROUND)
+--- @param _excludedNames table|nil set of unit names to skip
+--- @return number alive unit count
+function WE.countUnitsInRadius(_side, _point, _radius, _category, _excludedNames)
+    if not _side or not _point then
+        return 0
+    end
+    _category = _category or Group.Category.GROUND
+
+    local _count = 0
+    local _groups = coalition.getGroups(_side, _category)
+    if not _groups then return 0 end
+
+    for _, _group in pairs(_groups) do
+        if _group and _group:isExist() then
+            local _units = _group:getUnits()
+            for _, _unit in pairs(_units) do
+                if _unit and _unit:isExist() and _unit:getLife() > 0 then
+                    local _name = _unit:getName()
+                    if not _excludedNames or not _excludedNames[_name] then
+                        local _up = _unit:getPoint()
+                        local _dx = _up.x - _point.x
+                        local _dz = _up.z - _point.z
+                        if _dx * _dx + _dz * _dz <= _radius * _radius then
+                            _count = _count + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return _count
+end
+
+--- Destroy a list of groups if they still exist.
+--- @param _groups table list of Group objects
+function WE.destroyGroupList(_groups)
+    if not _groups then return end
+    for _, _group in ipairs(_groups) do
+        if _group and _group:isExist() then
+            _group:destroy()
+            WE.logInfo("Removed group %s", tostring(_group:getName()))
+        end
+    end
+end
+
 --- Get transport unit by name if active and alive
 --- @param _unitName string name of the transport unit
 --- @return Unit|nil transport unit object if active and alive, otherwise nil

@@ -3,6 +3,7 @@
 --- default states
 WE.nextUnitId = 1;
 WE.nextGroupId = 1;
+WE.nextMarkId = 1000;
 WE.is_active = 0;
 
 --- Event handling system for World Events
