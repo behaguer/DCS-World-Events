@@ -33,6 +33,44 @@ function WE.hasRadioAccess(groupName)
     return false
 end
 
+--- Get the list of currently enabled event names, in the order they should
+--- appear in the radio menu (per WE.EventOrder, with any enabled event not
+--- listed there appended at the end so it's never silently missed)
+--- @return table list of enabled event name strings
+function WE.getEnabledEventNames()
+    local _names = {}
+    local _seen = {}
+
+    if WE.EventOrder then
+        for _, _eventName in ipairs(WE.EventOrder) do
+            if WE.EnabledEvents and WE.EnabledEvents[_eventName] then
+                table.insert(_names, _eventName)
+                _seen[_eventName] = true
+            end
+        end
+    end
+
+    if WE.EnabledEvents then
+        for _eventName, _enabled in pairs(WE.EnabledEvents) do
+            if _enabled and not _seen[_eventName] then
+                table.insert(_names, _eventName)
+            end
+        end
+    end
+
+    return _names
+end
+
+--- Turn an event key like "BASE_ATTACK" into a readable radio menu label
+--- @param _eventName string the event key
+--- @return string display label
+function WE.getEventDisplayName(_eventName)
+    if not _eventName then
+        return ""
+    end
+    return (_eventName:gsub("_", " "))
+end
+
 --- Initialize radio menus for a specific group
 --- @param groupId number the group ID to add menus for
 --- @param groupName string the group name to check permissions
@@ -51,8 +89,16 @@ function WE.initializePlayerRadioMenu(groupId, groupName)
     -- Create main WorldEvents menu for this group
     WE.radioMenu[groupId].mainMenu = missionCommands.addSubMenuForGroup(groupId, "WorldEvents")
     
-    -- Add submenu items for this group
-    WE.radioMenu[groupId].spawnEventMenu = missionCommands.addCommandForGroup(groupId, "Spawn Event", WE.radioMenu[groupId].mainMenu, WE.spawnEventMenuAction)
+    -- "Spawn Event" is now a submenu listing every currently enabled event, so
+    -- new events only need to be added to WE.EnabledEvents to show up here
+    WE.radioMenu[groupId].spawnEventMenu = missionCommands.addSubMenuForGroup(groupId, "Spawn Event", WE.radioMenu[groupId].mainMenu)
+    WE.radioMenu[groupId].spawnEventCommands = {}
+    for _, _eventName in ipairs(WE.getEnabledEventNames()) do
+        WE.radioMenu[groupId].spawnEventCommands[_eventName] = missionCommands.addCommandForGroup(
+            groupId, WE.getEventDisplayName(_eventName), WE.radioMenu[groupId].spawnEventMenu,
+            WE.spawnEventMenuAction, _eventName)
+    end
+
     WE.radioMenu[groupId].eventStatusMenu = missionCommands.addCommandForGroup(groupId, "Event Status", WE.radioMenu[groupId].mainMenu, WE.showEventStatusAction)
     
     WE.logInfo("World Events radio menu initialized successfully for group: %s", groupName)
@@ -76,7 +122,12 @@ function WE.initializeRadioMenu()
     if hasAllAccess then
         -- Create global menu for everyone
         WE.radioMenu.mainMenu = missionCommands.addSubMenu("WorldEvents")
-        WE.radioMenu.spawnEventMenu = missionCommands.addCommand("Spawn Event", WE.radioMenu.mainMenu, WE.spawnEventMenuAction)
+        WE.radioMenu.spawnEventMenu = missionCommands.addSubMenu("Spawn Event", WE.radioMenu.mainMenu)
+        WE.radioMenu.spawnEventCommands = {}
+        for _, _eventName in ipairs(WE.getEnabledEventNames()) do
+            WE.radioMenu.spawnEventCommands[_eventName] = missionCommands.addCommand(
+                WE.getEventDisplayName(_eventName), WE.radioMenu.spawnEventMenu, WE.spawnEventMenuAction, _eventName)
+        end
         WE.radioMenu.eventStatusMenu = missionCommands.addCommand("Event Status", WE.radioMenu.mainMenu, WE.showEventStatusAction)
         WE.logInfo("World Events radio menu initialized globally for all players")
     else
@@ -120,20 +171,38 @@ function WE.initializeRadioMenu()
     WE.logInfo("World Events radio menu initialization complete")
 end
 
---- Action for Spawn Event menu option
-function WE.spawnEventMenuAction()
-    WE.logInfo("Spawn Event menu action triggered")
+--- Action for a "Spawn Event" radio menu item
+--- @param _eventName string the event key selected (e.g. "VIP_ESCORT", "BASE_ATTACK")
+function WE.spawnEventMenuAction(_eventName)
+    WE.logInfo("Spawn Event menu action triggered for '%s'", tostring(_eventName))
     
-    -- Check if an event is already active
+    -- Check if an event is already active. Stronghold missions manage their own
+    -- concurrency, so when multiple strongholds are enabled let them through and
+    -- let the stronghold module enforce its own limits.
     if WE.is_active == 1 then
-        trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
+        local _isStronghold = _eventName == "STRONGHOLD"
+        if not (_isStronghold and WE.StrongholdAllowMultiple) then
+            trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
+            return
+        end
+    end
+
+    if not _eventName or not WE.EnabledEvents[_eventName] then
+        WE.logError("spawnEventMenuAction: '%s' is not a currently enabled event", tostring(_eventName))
+        trigger.action.outText("That event is not currently enabled.", 10)
         return
     end
+
+    if not WE.EVENT[_eventName] then
+        WE.logError("spawnEventMenuAction: no WE.EVENT.%s function is defined", tostring(_eventName))
+        trigger.action.outText("That event isn't implemented yet.", 10)
+        return
+    end
+
+    WE.EVENT[_eventName]()
+    trigger.action.outSound("vip-enroute.wav")
     
-    -- For now, this is a placeholder - you would implement actual event spawning logic here
-    WE.is_active = 1
-    trigger.action.outText("World Event spawned! Use Event Status to check details.", 10)
-    WE.logInfo("World Event spawned via radio menu")
+    WE.logInfo("World Event '%s' spawned via radio menu", _eventName)
 end
 
 --- Action for Event Status menu option
@@ -143,6 +212,21 @@ function WE.showEventStatusAction()
     local statusMessage = ""
     if WE.is_active == 1 then
         statusMessage = "World Event Status: ACTIVE\n\nAn event is currently running. Check the F10 map for event details."
+        if WE.currentVIPEvent then
+            statusMessage = statusMessage .. string.format("\n\nVIP Escort: departed %s, en route to %s.",
+                tostring(WE.currentVIPEvent.departure), tostring(WE.currentVIPEvent.destination))
+        end
+        if WE.currentBaseAttackEvent then
+            statusMessage = statusMessage .. string.format("\n\nBase Attack: departed %s, attacking %s.",
+                tostring(WE.currentBaseAttackEvent.departure), tostring(WE.currentBaseAttackEvent.destination))
+        end
+        if #WE.activeStrongholdEvents > 0 then
+            for _i, _eventData in ipairs(WE.activeStrongholdEvents) do
+                local _remaining = math.max(0, math.ceil(_eventData.endsAt - timer.getTime()))
+                statusMessage = statusMessage .. string.format("\n\nStronghold %d: located near %s, %d seconds remaining.",
+                    _i, tostring(_eventData.area), _remaining)
+            end
+        end
     else
         statusMessage = "World Event Status: INACTIVE\n\nNo events are currently active. Use 'Spawn Event' to start a new event."
     end

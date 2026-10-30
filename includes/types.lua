@@ -20,6 +20,7 @@
 ---@field getByName fun(name: string): Group|nil
 ---@field getName fun(self: Group): string
 ---@field isExist fun(self: Group): boolean
+---@field getID fun(self: Group): number
 ---@field getUnits fun(self: Group): Unit[]
 ---@field getCoalition fun(self: Group): number
 
@@ -40,6 +41,11 @@
 ---@field getName fun(self: Airbase): string
 ---@field getPoint fun(self: Airbase): table
 ---@field getCoalition fun(self: Airbase): number
+---@field getID fun(self: Airbase): number
+---@field isExist fun(self: Airbase): boolean
+---@field getRunways fun(self: Airbase): table|nil
+---@field setCoalition fun(self: Airbase, coalition: number)
+---@field autoCapture fun(self: Airbase, auto: boolean)
 
 ---@class GroupTemplate
 ---@field name string Template name
