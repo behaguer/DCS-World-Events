@@ -2,6 +2,43 @@
 
 
 
+function WE.refreshPlayerRadioMenu(groupId, groupName, delaySeconds)
+    if not groupId or not groupName then
+        return
+    end
+
+    if not WE.radioMenu[groupId] then
+        WE.radioMenu[groupId] = {}
+    end
+
+    local _token = (WE.radioMenu[groupId].refreshToken or 0) + 1
+    WE.radioMenu[groupId].refreshToken = _token
+
+    timer.scheduleFunction(function()
+        if WE.radioMenu[groupId] and WE.radioMenu[groupId].refreshToken ~= _token then
+            WE.logInfo("Ignoring stale radio menu refresh for group %d (token mismatch)", groupId)
+            return nil
+        end
+
+        if WE.radioMenu[groupId] then
+            WE.logInfo("Refreshing radio menu for group %d before re-creating", groupId)
+            if WE.radioMenu[groupId].spawnEventMenu then
+                missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
+            end
+            if WE.radioMenu[groupId].eventStatusMenu then
+                missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
+            end
+            if WE.radioMenu[groupId].mainMenu then
+                missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
+            end
+            WE.radioMenu[groupId] = nil
+        end
+
+        WE.initializePlayerRadioMenu(groupId, groupName)
+        return nil
+    end, nil, timer.getTime() + (delaySeconds or 1))
+end
+
 --- Event handler for when players join/leave to update radio menus
 function WE.onPlayerEvent(event)
     if not event then
@@ -19,27 +56,7 @@ function WE.onPlayerEvent(event)
                 local groupId = group:getID()
                 local groupName = group:getName()
                 WE.logInfo("Player '%s' entering unit in group '%s' (ID: %d)", playerName, groupName, groupId)
-                
-                -- Small delay to ensure unit is fully initialized
-                timer.scheduleFunction(function()
-                    -- Remove any existing menu for this group first (in case of reslotting)
-                    if WE.radioMenu[groupId] then
-                        WE.logInfo("Removing existing radio menu for group %d before re-creating", groupId)
-                        if WE.radioMenu[groupId].spawnEventMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
-                        end
-                        if WE.radioMenu[groupId].eventStatusMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
-                        end
-                        if WE.radioMenu[groupId].mainMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
-                        end
-                        WE.radioMenu[groupId] = nil
-                    end
-                    
-                    -- Now initialize menu with proper access control
-                    WE.initializePlayerRadioMenu(groupId, groupName)
-                end, nil, timer.getTime() + 1)
+                WE.refreshPlayerRadioMenu(groupId, groupName, 1)
             end
         end
     elseif event.id == world.event.S_EVENT_BIRTH then
@@ -51,27 +68,7 @@ function WE.onPlayerEvent(event)
                 local groupId = group:getID()
                 local groupName = group:getName()
                 WE.logInfo("Player '%s' spawned in group '%s' (ID: %d) via BIRTH event", playerName, groupName, groupId)
-                
-                -- Small delay to ensure unit is fully initialized
-                timer.scheduleFunction(function()
-                    -- Remove any existing menu for this group first
-                    if WE.radioMenu[groupId] then
-                        WE.logInfo("Removing existing radio menu for group %d before re-creating (BIRTH)", groupId)
-                        if WE.radioMenu[groupId].spawnEventMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
-                        end
-                        if WE.radioMenu[groupId].eventStatusMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
-                        end
-                        if WE.radioMenu[groupId].mainMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
-                        end
-                        WE.radioMenu[groupId] = nil
-                    end
-                    
-                    -- Initialize menu with proper access control
-                    WE.initializePlayerRadioMenu(groupId, groupName)
-                end, nil, timer.getTime() + 2)
+                WE.refreshPlayerRadioMenu(groupId, groupName, 2)
             end
         end
     elseif event.id == world.event.S_EVENT_PLAYER_LEAVE_UNIT then

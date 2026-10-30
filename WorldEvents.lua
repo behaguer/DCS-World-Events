@@ -2007,6 +2007,43 @@ end
 
 
 
+function WE.refreshPlayerRadioMenu(groupId, groupName, delaySeconds)
+    if not groupId or not groupName then
+        return
+    end
+
+    if not WE.radioMenu[groupId] then
+        WE.radioMenu[groupId] = {}
+    end
+
+    local _token = (WE.radioMenu[groupId].refreshToken or 0) + 1
+    WE.radioMenu[groupId].refreshToken = _token
+
+    timer.scheduleFunction(function()
+        if WE.radioMenu[groupId] and WE.radioMenu[groupId].refreshToken ~= _token then
+            WE.logInfo("Ignoring stale radio menu refresh for group %d (token mismatch)", groupId)
+            return nil
+        end
+
+        if WE.radioMenu[groupId] then
+            WE.logInfo("Refreshing radio menu for group %d before re-creating", groupId)
+            if WE.radioMenu[groupId].spawnEventMenu then
+                missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
+            end
+            if WE.radioMenu[groupId].eventStatusMenu then
+                missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
+            end
+            if WE.radioMenu[groupId].mainMenu then
+                missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
+            end
+            WE.radioMenu[groupId] = nil
+        end
+
+        WE.initializePlayerRadioMenu(groupId, groupName)
+        return nil
+    end, nil, timer.getTime() + (delaySeconds or 1))
+end
+
 --- Event handler for when players join/leave to update radio menus
 function WE.onPlayerEvent(event)
     if not event then
@@ -2024,27 +2061,7 @@ function WE.onPlayerEvent(event)
                 local groupId = group:getID()
                 local groupName = group:getName()
                 WE.logInfo("Player '%s' entering unit in group '%s' (ID: %d)", playerName, groupName, groupId)
-                
-                -- Small delay to ensure unit is fully initialized
-                timer.scheduleFunction(function()
-                    -- Remove any existing menu for this group first (in case of reslotting)
-                    if WE.radioMenu[groupId] then
-                        WE.logInfo("Removing existing radio menu for group %d before re-creating", groupId)
-                        if WE.radioMenu[groupId].spawnEventMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
-                        end
-                        if WE.radioMenu[groupId].eventStatusMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
-                        end
-                        if WE.radioMenu[groupId].mainMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
-                        end
-                        WE.radioMenu[groupId] = nil
-                    end
-                    
-                    -- Now initialize menu with proper access control
-                    WE.initializePlayerRadioMenu(groupId, groupName)
-                end, nil, timer.getTime() + 1)
+                WE.refreshPlayerRadioMenu(groupId, groupName, 1)
             end
         end
     elseif event.id == world.event.S_EVENT_BIRTH then
@@ -2056,27 +2073,7 @@ function WE.onPlayerEvent(event)
                 local groupId = group:getID()
                 local groupName = group:getName()
                 WE.logInfo("Player '%s' spawned in group '%s' (ID: %d) via BIRTH event", playerName, groupName, groupId)
-                
-                -- Small delay to ensure unit is fully initialized
-                timer.scheduleFunction(function()
-                    -- Remove any existing menu for this group first
-                    if WE.radioMenu[groupId] then
-                        WE.logInfo("Removing existing radio menu for group %d before re-creating (BIRTH)", groupId)
-                        if WE.radioMenu[groupId].spawnEventMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].spawnEventMenu)
-                        end
-                        if WE.radioMenu[groupId].eventStatusMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].eventStatusMenu)
-                        end
-                        if WE.radioMenu[groupId].mainMenu then
-                            missionCommands.removeItemForGroup(groupId, WE.radioMenu[groupId].mainMenu)
-                        end
-                        WE.radioMenu[groupId] = nil
-                    end
-                    
-                    -- Initialize menu with proper access control
-                    WE.initializePlayerRadioMenu(groupId, groupName)
-                end, nil, timer.getTime() + 2)
+                WE.refreshPlayerRadioMenu(groupId, groupName, 2)
             end
         end
     elseif event.id == world.event.S_EVENT_PLAYER_LEAVE_UNIT then
@@ -4325,6 +4322,11 @@ WE.ConvoyTickIntervalSeconds = 5
 --- destination point.
 WE.ConvoyArrivalRadiusMeters = 500
 
+--- Additional arrival radius around the destination airbase reference point.
+--- This avoids edge cases where road routing stops just short of the exact
+--- destination waypoint but the convoy has effectively arrived at the base.
+WE.ConvoyArrivalAirbaseRadiusMeters = 2500
+
 --- Hard deadline (seconds) for the convoy to reach the destination.
 WE.ConvoyTimeoutSeconds = 1800
 
@@ -4337,6 +4339,10 @@ WE.ConvoyMaxConcurrent = 2
 --- Routes shorter than this (meters) are rejected so the convoy isn't spawned
 --- between two airfields that are practically next to each other.
 WE.ConvoyMinRouteDistanceMeters = 5000
+
+--- Maximum direct airfield-to-airfield distance for a convoy route. This keeps
+--- the mission in the local theatre instead of sending the convoy across the map.
+WE.ConvoyMaxRouteDistanceMeters = 30 * 1852
 
 --- Number of route points including the start and destination (3-5 recommended).
 WE.ConvoyRoutePointCount = 4
@@ -4429,6 +4435,9 @@ function WE.buildConvoyRoute(_start, _finish)
     if _distance < WE.ConvoyMinRouteDistanceMeters then
         return nil
     end
+    if _distance > (WE.ConvoyMaxRouteDistanceMeters or 100000000) then
+        return nil
+    end
 
     local _pointCount = math.max(3, math.min(5, WE.ConvoyRoutePointCount))
     local _points = { _start }
@@ -4485,23 +4494,54 @@ function WE.pickConvoyRoute()
         return nil, nil, nil
     end
 
-    for _ = 1, 40 do
-        local _origin = _originCandidates[math.random(1, #_originCandidates)]
-        local _destination = _destinationCandidates[math.random(1, #_destinationCandidates)]
+    local _candidatePairs = {}
+    local _maxDistance = WE.ConvoyMaxRouteDistanceMeters or 100000000
 
-        if _origin:getName() ~= _destination:getName() then
-            local _start = WE.getConvoyAirbasePoint(_origin, 300, 1500)
-            local _finish = WE.getConvoyAirbasePoint(_destination, 500, 2000)
-            if _start and _finish then
-                local _route = WE.buildConvoyRoute(_start, _finish)
-                if _route then
-                    return _route, _origin, _destination
+    for _, _origin in ipairs(_originCandidates) do
+        local _originPoint = _origin:getPoint()
+        if _originPoint then
+            for _, _destination in ipairs(_destinationCandidates) do
+                if _origin:getName() ~= _destination:getName() then
+                    local _destinationPoint = _destination:getPoint()
+                    if _destinationPoint then
+                        local _airbaseDistance = WE.getDistance(_originPoint, _destinationPoint)
+                        if _airbaseDistance <= _maxDistance then
+                            table.insert(_candidatePairs, {
+                                origin = _origin,
+                                destination = _destination,
+                            })
+                        end
+                    end
                 end
             end
         end
     end
 
-    WE.logWarning("pickConvoyRoute: no usable route after 40 attempts")
+    if #_candidatePairs == 0 then
+        WE.logWarning("pickConvoyRoute: no origin/destination pairs within %.0f nm",
+            (_maxDistance / 1852))
+        return nil, nil, nil
+    end
+
+    for _i = #_candidatePairs, 2, -1 do
+        local _j = math.random(1, _i)
+        _candidatePairs[_i], _candidatePairs[_j] = _candidatePairs[_j], _candidatePairs[_i]
+    end
+
+    for _, _pair in ipairs(_candidatePairs) do
+        for _attempt = 1, 6 do
+            local _start = WE.getConvoyAirbasePoint(_pair.origin, 300, 1500)
+            local _finish = WE.getConvoyAirbasePoint(_pair.destination, 500, 2000)
+            if _start and _finish and WE.isConvoyRoutePoint(_start) and WE.isConvoyRoutePoint(_finish) then
+                local _route = WE.buildConvoyRoute(_start, _finish)
+                if _route then
+                    return _route, _pair.origin, _pair.destination
+                end
+            end
+        end
+    end
+
+    WE.logWarning("pickConvoyRoute: no usable route after checking %d nearby pair(s)", #_candidatePairs)
     return nil, nil, nil
 end
 
@@ -4547,7 +4587,7 @@ function WE.buildConvoyGroundGroup(_name, _groupId, _route, _units)
     for _i, _point in ipairs(_route) do
         _points[_i] = {
             ["alt"] = _point.y,
-            ["action"] = "Turning Point",
+            ["action"] = "On Road",
             ["alt_type"] = "BARO",
             ["speed"] = _speed,
             ["task"] = {
@@ -4684,6 +4724,121 @@ function WE.getConvoyLeader(_eventData)
     return nil
 end
 
+--- Draw the convoy route on the F10 map so players can see where it is moving.
+--- Falls back to waypoint markers when the line API is unavailable.
+--- @param _eventData table convoy event data
+function WE.drawConvoyRouteOnMap(_eventData)
+    if not _eventData or not _eventData.route then return end
+
+    _eventData.routeMarkerIds = {}
+    _eventData.routeLineIds = {}
+
+    local function _drawRouteMarkers()
+        for _i, _point in ipairs(_eventData.route) do
+            local _markerId = WE.getNextMarkId()
+            _eventData.routeMarkerIds[_i] = _markerId
+            if trigger.action and type(trigger.action.markToAll) == "function" then
+                local _label = string.format("Convoy path %d", _i)
+                if _i == 1 then
+                    _label = "CONVOY ROUTE START"
+                elseif _i == #_eventData.route then
+                    _label = "CONVOY ROUTE END"
+                end
+                trigger.action.markToAll(_markerId,
+                    _label,
+                    _point)
+            end
+        end
+    end
+
+    local function _drawShapeAttempt()
+        if not trigger.action then
+            _drawRouteMarkers()
+            return
+        end
+
+        local _useArrow = type(trigger.action.arrowToAll) == "function"
+        local _useLine = type(trigger.action.lineToAll) == "function"
+        if not _useArrow and not _useLine then
+            _drawRouteMarkers()
+            return
+        end
+
+        for _i = 1, #_eventData.route - 1 do
+            local _shapeId = (_eventData.spawnId or 1) * 100 + _i
+            _eventData.routeLineIds[_i] = _shapeId
+            local _startPoint = _eventData.route[_i]
+            local _endPoint = _eventData.route[_i + 1]
+
+            if _useArrow then
+                -- DCS arrowToAll points the arrow head at the first vec3 argument.
+                -- To have the convoy route point toward the destination, draw each
+                -- segment in reverse so the arrow head lands on the next waypoint.
+                trigger.action.arrowToAll(-1,
+                    _shapeId,
+                    _endPoint,
+                    _startPoint,
+                    { 1, 1, 0, 1 },
+                    { 1, 1, 0, 0.15 },
+                    3,
+                    false,
+                    "CONVOY ROUTE")
+            else
+                trigger.action.lineToAll(-1,
+                    _shapeId,
+                    _startPoint,
+                    _endPoint,
+                    { 1, 1, 0, 1 },
+                    3,
+                    false,
+                    "CONVOY ROUTE")
+            end
+        end
+        WE.logDebug("Convoy route overlay drawn with %d segment(s)", #_eventData.routeLineIds)
+    end
+
+    local _ok, _err = pcall(_drawShapeAttempt)
+    if not _ok then
+        WE.logWarning("Convoy route overlay draw failed: %s", tostring(_err))
+        _drawRouteMarkers()
+        trigger.action.outText("F10 MAP: Convoy route overlay failed on this DCS build; follow CONVOY ROUTE START/END markers.", 10)
+    end
+
+    if #_eventData.routeMarkerIds == 0 then
+        _drawRouteMarkers()
+    end
+
+    if trigger.action and type(trigger.action.textToAll) == "function" then
+        _eventData.routeTextId = WE.getNextMarkId()
+        local _midIndex = math.max(1, math.floor(#_eventData.route / 2))
+        local _midPoint = _eventData.route[_midIndex]
+        if _midPoint then
+            local _textPoint = { x = _midPoint.x, y = 0, z = _midPoint.z }
+            trigger.action.textToAll(-1,
+                _eventData.routeTextId,
+                _textPoint,
+                { 1, 1, 0, 1 },
+                { 0, 0, 0, 0.05 },
+                18,
+                false,
+                "ENEMY CONVOY ROUTE")
+            WE.logDebug("Convoy route text label placed: %s", tostring(_eventData.routeTextId))
+        end
+    end
+
+    if trigger.action and type(trigger.action.markToAll) == "function" then
+        _eventData.routeLabelMarkId = WE.getNextMarkId()
+        local _midIndex = math.max(1, math.floor(#_eventData.route / 2))
+        local _midPoint = _eventData.route[_midIndex]
+        if _midPoint then
+            trigger.action.markToAll(_eventData.routeLabelMarkId,
+                "CONVOY ROUTE - FOLLOW THE ARROW",
+                _midPoint)
+            WE.logDebug("Convoy route label mark placed: %s", tostring(_eventData.routeLabelMarkId))
+        end
+    end
+end
+
 --- End a convoy mission, clean up its mark and apply the failure consequence.
 --- @param _eventData table convoy event data
 --- @param _result string "SUCCESS", "ARRIVED" or "TIMEOUT"
@@ -4695,16 +4850,40 @@ function WE.endConvoyEvent(_eventData, _result)
         trigger.action.removeMark(_eventData.markId)
     end
 
+    if _eventData.routeMarkerIds then
+        for _, _markerId in ipairs(_eventData.routeMarkerIds) do
+            if _markerId then
+                pcall(function() trigger.action.removeMark(_markerId) end)
+            end
+        end
+    end
+
+    if _eventData.routeLineIds then
+        for _, _lineId in ipairs(_eventData.routeLineIds) do
+            if _lineId then
+                pcall(function() trigger.action.removeMark(_lineId) end)
+            end
+        end
+    end
+
+    if _eventData.routeLabelMarkId then
+        pcall(function() trigger.action.removeMark(_eventData.routeLabelMarkId) end)
+    end
+
+    if _eventData.routeTextId then
+        pcall(function() trigger.action.removeMark(_eventData.routeTextId) end)
+    end
+
     if _result == "SUCCESS" then
         trigger.action.outText("SUCCESS: The convoy has been destroyed before delivering its supplies!", 10)
     elseif _result == "ARRIVED" then
         trigger.action.outText(string.format(
-            "The convoy reached %s and delivered reinforcements!", _eventData.destination), 10)
+            "MISSION FAILED: The convoy reached %s and delivered reinforcements!", _eventData.destination), 10)
         _eventData.delivered = true
         WE.spawnConvoyDefense(_eventData.destinationPoint, _eventData.spawnId)
     else
         trigger.action.outText(string.format(
-            "Time ran out! The convoy delivered its supplies to %s!", _eventData.destination), 10)
+            "MISSION FAILED: Time ran out and the convoy delivered supplies to %s!", _eventData.destination), 10)
         _eventData.delivered = true
         WE.spawnConvoyDefense(_eventData.destinationPoint, _eventData.spawnId)
     end
@@ -4748,7 +4927,15 @@ function WE.convoyTick()
                 local _leader = WE.getConvoyLeader(_eventData)
                 if _leader then
                     local _leaderPoint = _leader:getPoint()
-                    if WE.getDistance(_leaderPoint, _eventData.destinationPoint) <= WE.ConvoyArrivalRadiusMeters then
+                    local _atDestinationPoint =
+                        WE.getDistance(_leaderPoint, _eventData.destinationPoint) <= WE.ConvoyArrivalRadiusMeters
+                    local _atDestinationAirbase = false
+                    if _eventData.destinationAirbasePoint then
+                        _atDestinationAirbase =
+                            WE.getDistance(_leaderPoint, _eventData.destinationAirbasePoint) <=
+                            WE.ConvoyArrivalAirbaseRadiusMeters
+                    end
+                    if _atDestinationPoint or _atDestinationAirbase then
                         table.insert(_finished, { _eventData, "ARRIVED" })
                     end
                 end
@@ -4816,6 +5003,8 @@ function WE.EVENT.CONVOY()
         origin = _origin:getName(),
         destination = _destination:getName(),
         destinationPoint = _route[#_route],
+        destinationAirbasePoint = _destination:getPoint(),
+        route = _route,
         groupId = _group:getID(),
         groupName = _group:getName(),
         unitNames = _unitNames,
@@ -4844,9 +5033,11 @@ function WE.EVENT.CONVOY()
 
     local _minutes = math.ceil(WE.ConvoyTimeoutSeconds / 60)
     trigger.action.outText(string.format(
-        "CONVOY is en route from %s to %s! Destroy every convoy unit within %d minutes or it will deliver reinforcements!",
-        _eventData.origin, _eventData.destination, _minutes), 20)
+        "CONVOY is en route from %s to %s! Destroy every convoy unit or it will deliver reinforcements!\nConvoy route is marked on the F10 map with an arrow route and route markers.",
+        _eventData.origin, _eventData.destination), 20)
 
+    WE.drawConvoyRouteOnMap(_eventData)
+    trigger.action.outText("F10 MAP: CONVOY ROUTE - follow the yellow arrow route and the START/END path markers.", 15)
     trigger.action.outSound("attn_convoy.ogg")
 end
 

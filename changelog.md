@@ -23,8 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Destroy all units before arrival or the 30-minute timeout for success
   - Arrival/timeout delivers reinforcements: a 2x BTR-80 + 1x ZSU-23-4 Shilka
     garrison spawns at the destination
-  - F10 destination mark, event status provider, `S_EVENT_DEAD` handler and
-    5-second arrival/timeout tick
+  - F10 route markers plus destination mark, event status provider,
+    `S_EVENT_DEAD` handler and 5-second arrival/timeout tick
+  - Convoy route selection now rejects cross-map trips beyond 30 nm to keep
+    missions local to the theatre and readable for players
   - Optional multiple concurrent convoys via `WE.ConvoyAllowMultiple` /
     `WE.ConvoyMaxConcurrent`
   - Added `assets/attn_convoy.ogg` (placeholder alert copied from
@@ -42,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - F10 mark ids can no longer collide between Stronghold missions and future
   event types
+- Convoy route line rendering now uses DCS-compatible `lineToAll` parameters;
+  route labels remain visible even if line drawing fails
+- Convoy arrival failure now ends reliably when units reach the destination
+  base area, with mission-failed messaging and route-mark cleanup
 
 ## [0.1.0] - 2026-08-03
 

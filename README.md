@@ -267,12 +267,15 @@ deadline expires.
 - **Airfields** · `WE.getConvoyAirdromes()` collects red origins and
   red/neutral destinations (never blue); origins and destinations must be
   different airfields. `WE.pickConvoyRoute()` tries several random pairs so a
-  coastal or mountainous pair does not cancel the event immediately.
+  coastal or mountainous pair does not cancel the event immediately, and it
+  rejects any route whose direct start-to-destination distance exceeds
+  `WE.ConvoyMaxRouteDistanceMeters` (default 30 nm = ~55.6 km).
 - **Route** · the start and destination points are random land positions
   near the two airfields. `WE.buildConvoyRoute()` creates a 3–5 point ground
   route, rejecting water and paved waypoints and nudging intermediate points
   sideways when the direct line crosses water. Routes shorter than
-  `WE.ConvoyMinRouteDistanceMeters` (default 5000 m) are rejected.
+  `WE.ConvoyMinRouteDistanceMeters` (default 5000 m) are rejected, and long
+  cross-map trips are filtered out before the convoy spawns.
 - **Units** · one moving ground group: `WE.ConvoyTruckCount` trucks
   (default 6, alternating `WE.ConvoyTruckTypes`), `WE.ConvoyEscortCount`
   armed escorts (default 3, alternating `WE.ConvoyEscortTypes`), plus an
@@ -281,15 +284,18 @@ deadline expires.
   column so they do not stack.
 - **Timer and tracking** · `WE.convoyTick` runs every 5 seconds. It ends the
   mission as a failure when the first living unit gets within
-  `WE.ConvoyArrivalRadiusMeters` (default 500 m) of the destination or when
-  `WE.ConvoyTimeoutSeconds` (default 1800 = 30 minutes) expires. It ends as a
-  success once `WE.areAllUnitsDead` confirms every tracked unit is gone.
-  `WE.EVENT.CONVOYEVENT:onEvent` also resolves success immediately on the
-  last `S_EVENT_DEAD`.
+  `WE.ConvoyArrivalRadiusMeters` (default 500 m) of the destination waypoint
+  (or within `WE.ConvoyArrivalAirbaseRadiusMeters`, default 2500 m, of the
+  destination airbase reference point) or when `WE.ConvoyTimeoutSeconds`
+  (default 1800 = 30 minutes) expires. It ends as a success once
+  `WE.areAllUnitsDead` confirms every tracked unit is gone.
+  `WE.EVENT.CONVOYEVENT:onEvent` also resolves success immediately on the last
+  `S_EVENT_DEAD`.
 - **Failure consequences** · the convoy is considered delivered and a small
   red garrison (2x BTR-80 + 1x ZSU-23-4 Shilka) spawns at the destination.
-  The destination is marked on the F10 map when the convoy spawns; the mark
-  is removed when the event ends.
+  The convoy route is drawn on the F10 map as a dotted line and route-labeled
+  markers, and all convoy route/destination marks are removed when the event
+  ends.
 - **Multiple convoys** · `WE.ConvoyAllowMultiple = false` by default; when
   enabled, up to `WE.ConvoyMaxConcurrent` convoys can run, each with its own
   route, timer, mark and status line. `WE.is_active` stays set while any

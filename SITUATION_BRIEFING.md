@@ -94,8 +94,8 @@ Fail: Timer expires with bunker intact — airfield captured.
 What to expect: A red supply convoy of 6 trucks, 3 armed escorts, a ZSU-23-4 Shilka and a Strela-10M3, driving from a rear airfield to a front-line airfield.
 
 Behaviour:
-- The convoy spawns near a red airfield and follows a ground route to a red or neutral destination airfield.
-- It drives at roughly 30 km/h; the route is shown only by the destination map mark, so search along the road network.
+- The convoy spawns near a red airfield and follows a ground route to a nearby red or neutral destination airfield within 30 nm of the start.
+- It drives at roughly 30 km/h; the route is shown on the F10 map with a dotted line plus labeled path markers and the destination mark, so players can follow the direction of travel.
 - The convoy has a 30-minute deadline. If it arrives or the timer expires, it delivers reinforcements.
 
 How to intercept:
