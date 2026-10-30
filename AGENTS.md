@@ -35,6 +35,7 @@ includes/                 Source modules (authoritative code)
   event.lua               Player join/leave menu lifecycle + event bookkeeping stubs
   event_vipwing.lua       VIP Escort event + handler
   event_baseattack.lua    Base Attack event + handler
+  event_convoy.lua        Convoy event + handler
   event_stronghold.lua    Stronghold event + handler
   init.lua                WE.initialize() + unconditional startup
   _compiler_registry.txt  Exact concatenation order for build.ps1
@@ -104,6 +105,7 @@ event.lua
 event_vipwing.lua
 event_baseattack.lua
 event_stronghold.lua
+event_convoy.lua
 init.lua
 ```
 
@@ -202,10 +204,12 @@ Other geometry helpers in `utility.lua`: `getPointAt12Oclock`, `getPointAt6Ocloc
   └── Event Status
   ```
 - `spawnEventMenuAction` enforces the single-active-event gate (`WE.is_active == 1`)
-  except when the requested event is `STRONGHOLD` and `WE.StrongholdAllowMultiple` is true.
-  It also plays `trigger.action.outSound("vip-enroute.wav")` after any event spawns.
+  except when the requested event is `STRONGHOLD` with `WE.StrongholdAllowMultiple`, or
+  `CONVOY` with `WE.ConvoyAllowMultiple`. It also plays
+  `trigger.action.outSound("vip-enroute.wav")` after any event spawns.
   > Note: `vip-enroute.wav` is **not** present in `assets/`; actual event sounds are
-  > `attn_vip.ogg`, `attn_attack.ogg`, `attn_stronghold.ogg`, played inside each event.
+  > `attn_vip.ogg`, `attn_attack.ogg`, `attn_stronghold.ogg`, `attn_convoy.ogg`,
+  > played inside each event.
 
 ### State (`state.lua` + per-event)
 
@@ -213,7 +217,7 @@ Other geometry helpers in `utility.lua`: `getPointAt12Oclock`, `getPointAt6Ocloc
 WE.nextUnitId = 1
 WE.nextGroupId = 1
 WE.nextMarkId = 1000        -- getNextMarkId() returns -(nextMarkId + 1)
-WE.is_active = 0            -- global single-event lock (stronghold shares it)
+WE.is_active = 0            -- global single-event lock (stronghold/convoy share it)
 WE.eventHandlers = {}
 WE.events = {}
 WE.eventStatusProviders = {} -- event key -> status text provider
@@ -224,11 +228,14 @@ Per-event state:
 - `WE.currentBaseAttackEvent = { departure, destination, attackCASGroupGroupId, fighterGroupId }`
 - `WE.activeStrongholdEvents = { [1] = { area, point, airbase, duration, spawnedAt, endsAt,
   unitNames, groups, markId, spawnId, buildingUnitName, ended, lastAnnouncedMinutes }, ... }`
-- `WE.strongholdSpawnCounter` for unique group/unit names; F10 marks use
-  `WE.getNextMarkId()`.
+- `WE.currentConvoyEvent = { origin, destination, destinationPoint, groupId, groupName,
+  unitNames, unitOrder, spawnedAt, endsAt, delivered, markId, spawnId, ended }`
+- `WE.activeConvoyEvents = { [1] = WE.currentConvoyEvent, ... }`
+- `WE.strongholdSpawnCounter` / `WE.convoySpawnCounter` for unique group/unit names;
+  F10 marks use `WE.getNextMarkId()`.
 
-`WE.is_active` is a **single global flag**. For strongholds it stays `1` while any
-stronghold mission is active and clears only when the list is empty.
+`WE.is_active` is a **single global flag**. For strongholds/convoys it stays `1` while any
+mission of that type is active and clears only when the tracked list is empty.
 
 ---
 
@@ -271,6 +278,32 @@ stronghold mission is active and clears only when the list is empty.
   - `S_EVENT_DEAD` → if all `ShAP` units dead, success (clears state).
   - `S_EVENT_ENGINE_SHUTDOWN` → failure (aircraft landed safely).
   - Uses `Group.getByName("ShAP")` for the all-dead check.
+
+### Convoy — `WE.EVENT.CONVOY` (`event_convoy.lua`)
+
+- Config: `WE.ConvoyCountry` (RUSSIA), `WE.ConvoyTruckTypes` (`Ural-375`, `GAZ-66`),
+  `WE.ConvoyTruckCount` (6), `WE.ConvoyEscortTypes` (`BMP-2`, `BTR-80`),
+  `WE.ConvoyEscortCount` (3), optional `WE.ConvoyAAAType` (`ZSU-23-4 Shilka`) and
+  `WE.ConvoySAMType` (`Strela-10M3`), `WE.ConvoySpeedKph` (30),
+  `WE.ConvoyArrivalRadiusMeters` (500), `WE.ConvoyTimeoutSeconds` (1800),
+  `WE.ConvoyAllowMultiple` (false), `WE.ConvoyMaxConcurrent` (2),
+  `WE.ConvoyMinRouteDistanceMeters` (5000), `WE.ConvoyRoutePointCount` (4).
+- Origin is a random **red** airdrome; destination is a random **red or neutral**
+  airdrome (distinct from origin). `pickConvoyRoute` retries up to 40 pairs.
+- Start/finish points are land points near the two airbases; `buildConvoyRoute`
+  builds a 3–5 point ground route, rejecting water/pavement waypoints and nudging
+  intermediate points sideways when needed.
+- Spawns one moving ground group `Convoy_<spawnId>` with trucks, escorts and
+  optional AAA/SAM. Units are laid out in a column; every name is unique.
+- `WE.convoyTick` runs every 5 s: success when all tracked units are dead,
+  failure when the first living unit is within `ConvoyArrivalRadiusMeters` of
+  the destination or `endsAt` is reached. On failure a 2× BTR-80 + 1× Shilka
+  garrison spawns at the destination.
+- Handler `WE.EVENT.CONVOYEVENT:onEvent` resolves success on the final
+  `S_EVENT_DEAD`. F10 destination mark removed on end; status provider reports
+  route and seconds remaining. Plays `attn_convoy.ogg`.
+- `WE.is_active` clears only when no convoys remain; multiple concurrent convoys
+  are supported when `WE.ConvoyAllowMultiple` is true.
 
 ### Stronghold — `WE.EVENT.STRONGHOLD` (`event_stronghold.lua`)
 
@@ -345,9 +378,10 @@ WE.EnabledEvents = {            -- master on/off per event key
     ["VIP_ESCORT"] = true,
     ["BASE_ATTACK"] = true,
     ["STRONGHOLD"] = true,
+    ["CONVOY"] = true,
 }
 WE.EventOrder = {               -- menu display order; unlisted enabled events appended
-    "VIP_ESCORT", "BASE_ATTACK", "STRONGHOLD",
+    "VIP_ESCORT", "BASE_ATTACK", "STRONGHOLD", "CONVOY",
 }
 ```
 
@@ -363,11 +397,14 @@ unit types/counts, timers, etc.).
 - **Docs:** `README.md`, `SITUATION_BRIEFING.md`, `changelog.md`, and `EVENT_DESIGN.md` are
   kept in sync with the code (Stronghold duration is 900 s / 15 min, and state uses
   `WE.activeStrongholdEvents`). Update them when behavior/config changes.
-- **Planned events:** `EVENT_DESIGN.md` holds implementation-ready designs for `CONVOY`,
-  `IADS`, `CSAR`, `BASE_DEFENSE`, and `FARP_CAPTURE`. Phase 0 (shared helper refactor) is
-  complete; follow the file one event at a time and keep its status table current.
+- **Planned events:** `EVENT_DESIGN.md` holds implementation-ready designs for `IADS`,
+  `CSAR`, `BASE_DEFENSE`, and `FARP_CAPTURE`. `CONVOY` is implemented; Phase 0 (shared
+  helper refactor) is complete. Follow the file one event at a time and keep its status
+  table current.
 - **Missing sound:** `radio.lua` plays `"vip-enroute.wav"`, but `assets/` only contains
-  `attn_vip.ogg`, `attn_attack.ogg`, `attn_stronghold.ogg`. Adjust or add the file if needed.
+  `attn_vip.ogg`, `attn_attack.ogg`, `attn_stronghold.ogg`, `attn_convoy.ogg`. Adjust or
+  add the file if needed. `attn_convoy.ogg` currently mirrors `attn_attack.ogg` as a
+  placeholder.
 - **Legacy cargo subsystem in `utility.lua` is inactive.** Functions for troop transport,
   FOB crates, extraction, AI load/unload reference many globals that are never defined
   (`WE.extractZones`, `WE.inTransitTroops`, `WE.droppedTroopsRED`, `WE.transportPilotNames`,
@@ -375,7 +412,8 @@ unit types/counts, timers, etc.).
   Safe to ignore; do not assume it works without wiring config + scheduler.
 - **Base Attack config inconsistency:** escort uses `WE.VIPEscortEngagementDistMax` rather
   than `WE.EscortEngagementDistMax` in the task payload. Both default to 60000.
-- **Single active event by design** except strongholds (when `StrongholdAllowMultiple`).
+- **Single active event by design** except strongholds (when `StrongholdAllowMultiple`)
+  and convoys (when `ConvoyAllowMultiple`).
 - **No automated tests.** Verification is: rebuild via `build.ps1`, then run in a DCS mission
   and inspect `dcs.log` (all lines prefixed `World Event - `). LuaLS diagnostics are
   configured via `.luarc.json` / `.vscode/settings.json`.
@@ -396,7 +434,7 @@ unit types/counts, timers, etc.).
 | Change an event's status text | its `WE.registerEventStatus` provider |
 | Change shared status behavior | `WE.showEventStatusAction` in `radio.lua` |
 | Change player menu lifecycle | `event.lua` |
-| Change VIP/base/stronghold behavior | corresponding `event_*.lua` |
+| Change event behavior (VIP/base/convoy/stronghold) | corresponding `event_*.lua` |
 | Add/modify shared helpers | `utility.lua` |
 | Change logging behavior | `WE.log*` in `utility.lua`, `WE.Debug`/`WE.Trace` |
 | Rebuild deployable script | `.\build.ps1 -InputFilePath "WorldEvents.lua"` |

@@ -8,7 +8,7 @@ Version: 0.1.0
 
 ## 1. SITUATION
 
-Red forces are conducting three distinct types of operation across the theatre. Each is triggered on-demand and operates independently on any map. You will not know which event is active until it triggers — be prepared for anything.
+Red forces are conducting four distinct types of operation across the theatre. Each is triggered on-demand and operates independently on any map. You will not know which event is active until it triggers — be prepared for anything.
 
 One event at a time. When it's done, another can follow.
 
@@ -89,6 +89,25 @@ Fail: Timer expires with bunker intact — airfield captured.
 
 ---
 
+### 2.4 Supply Convoy
+
+What to expect: A red supply convoy of 6 trucks, 3 armed escorts, a ZSU-23-4 Shilka and a Strela-10M3, driving from a rear airfield to a front-line airfield.
+
+Behaviour:
+- The convoy spawns near a red airfield and follows a ground route to a red or neutral destination airfield.
+- It drives at roughly 30 km/h; the route is shown only by the destination map mark, so search along the road network.
+- The convoy has a 30-minute deadline. If it arrives or the timer expires, it delivers reinforcements.
+
+How to intercept:
+- You'll be told the origin and destination airfields on spawn.
+- Find and destroy the trucks first; the escorts and mobile air defences will defend the column.
+- The Shilka and Strela are dangerous to low aircraft — suppress them before making repeated passes.
+
+Kill: Every convoy unit destroyed before arrival.
+Fail: The convoy reaches the destination or the 30-minute timer expires — a red garrison (2x BTR-80, 1x ZSU-23-4 Shilka) is deployed there.
+
+---
+
 ## 3. RULES OF ENGAGEMENT
 
 - All red aircraft and ground units are weapons free.
@@ -106,7 +125,7 @@ Fail: Timer expires with bunker intact — airfield captured.
 | Status | F10 Radio Menu > WorldEvents > Event Status |
 | Notifications | Text message to all players on spawn (airfield names, countdown) |
 | Audio | Alert sound played on event trigger |
-| Map Marks | Stronghold locations marked on F10 map, removed on completion |
+| Map Marks | Stronghold locations and Convoy destinations marked on F10 map, removed on completion |
 
 ---
 
@@ -114,5 +133,5 @@ Fail: Timer expires with bunker intact — airfield captured.
 
 - Airfield selection is dynamic — it changes every time based on what's on the map. You may get familiar territory or somewhere you've never been.
 - The VIP Wing only spawns at airfields with runways long enough for a C-130 (1,000m+). Small strips are excluded.
-- Only one event type can be active at a time (exception: multiple strongholds).
+- Only one event type can be active at a time (exception: multiple strongholds, and multiple convoys when enabled by the mission maker).
 - Events can be spawned repeatedly. There is no cooldown.

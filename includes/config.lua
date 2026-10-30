@@ -12,6 +12,7 @@ WE.EnabledEvents = {
     ["VIP_ESCORT"] = true,
     ["BASE_ATTACK"] = true,
     ["STRONGHOLD"] = true,
+    ["CONVOY"] = true,
 }
 -- Controls the order events appear in the "Spawn Event" radio submenu.
 -- Any event not listed here still works, it's just appended at the end.
@@ -19,6 +20,7 @@ WE.EventOrder = {
     "VIP_ESCORT",
     "BASE_ATTACK",
     "STRONGHOLD",
+    "CONVOY",
 }
 
 -----------------[[ END OF config.lua ]]-----------------

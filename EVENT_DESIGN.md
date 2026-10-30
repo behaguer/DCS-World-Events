@@ -229,10 +229,14 @@ Use these conventions so the modules feel consistent and are easy to review:
 
 ### 4.1 `CONVOY` — Convoy Interdiction
 
-**Status:** `READY` after Phase 0  
-**Module:** `includes/event_convoy.lua`  
-**Spawn function:** `WE.EVENT.CONVOY()`  
-**Handler:** `WE.EVENT.CONVOYEVENT`  
+**Status:** `IN PROGRESS` - code complete and build clean; DCS in-game test pending
+
+**Module:** `includes/event_convoy.lua`
+
+**Spawn function:** `WE.EVENT.CONVOY()`
+
+**Handler:** `WE.EVENT.CONVOYEVENT`
+
 **Complexity:** Medium
 
 **Pitch:** A red supply convoy leaves a rear airbase and drives to a front-line
@@ -340,14 +344,15 @@ remaining.`
 
 **Implementation checklist**
 
-- [ ] Add module + delimiters + registry entry.
-- [ ] Add `WE.EnabledEvents["CONVOY"]`, `WE.EventOrder`.
-- [ ] Add config block.
-- [ ] Implement spawn, state, handler, tick.
-- [ ] Add status line.
-- [ ] Add sound asset.
-- [ ] Build + DCS test (success, timeout, arrival, repeated spawn).
-- [ ] Update docs/changelog.
+- [x] Add module + delimiters + registry entry.
+- [x] Add `WE.EnabledEvents["CONVOY"]`, `WE.EventOrder`.
+- [x] Add config block.
+- [x] Implement spawn, state, handler, tick.
+- [x] Add status line.
+- [x] Add sound asset (`attn_convoy.ogg`, placeholder copy of `attn_attack.ogg`).
+- [x] Build clean (LuaLS Error check passed).
+- [ ] DCS test (success, timeout, arrival, repeated spawn).
+- [x] Update docs/changelog.
 
 **Acceptance criteria**
 
@@ -919,7 +924,7 @@ remaining.`
 - Added `WE.registerEventStatus` and refactored status output.
 - Rebuilt `WorldEvents.lua`; in-game Stronghold smoke test remains manual.
 
-### Phase 1 — `CONVOY`
+### Phase 1 - `CONVOY` - CODE COMPLETE (DCS test pending)
 
 - Reuses ground helpers, route spawning, and the all-dead check.
 - Adds moving-target and arrival detection.

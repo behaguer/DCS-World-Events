@@ -17,6 +17,7 @@ radio menu. No external scripts or frameworks are required.
 - [Events](#events)
   - [VIP Escort](#vip-escort-weeventvip_escort)
   - [Base Attack](#base-attack-weeventbase_attack)
+  - [Convoy](#convoy-weeventconvoy)
   - [Stronghold](#stronghold-weeventstronghold)
 - [Event status tracking](#event-status-tracking)
 - [Logging](#logging)
@@ -31,7 +32,7 @@ Players (or specific "radio user" groups, per config) get a **WorldEvents**
 radio menu item. From it they can:
 
 - **Spawn Event** — pick from whichever events are currently enabled, e.g.
-  *VIP Escort* or *Base Attack*.
+  *VIP Escort*, *Convoy* or *Base Attack*.
 - **Event Status** — check whether an event is currently running, and get
   its departure/destination airfields.
 
@@ -41,6 +42,8 @@ map/mission, so the same script works unmodified across different theatres.
 The **Stronghold** event is the exception: it allows several concurrent
 stronghold missions by default (`WE.StrongholdAllowMultiple = true`); set it to
 `false` to limit it to one (see [Stronghold](#stronghold-weeventstronghold)).
+**Convoy** can also run multiple missions when `WE.ConvoyAllowMultiple` is
+enabled, but defaults to one at a time.
 
 ## Installation
 
@@ -65,6 +68,7 @@ The file is one script but organized into clearly-delimited sections
 | `event.lua` | Generic event-handling scaffolding: reacts to players entering/leaving units to (re)build their radio menu, plus `WE.addEvent`/`WE.removeEvent` bookkeeping stubs. |
 | `event_vipwing.lua` | The **VIP Escort** event. |
 | `event_baseattack.lua` | The **Base Attack** event. |
+| `event_convoy.lua` | The **Convoy** event. |
 | `event_stronghold.lua` | The **Stronghold** event. |
 | `init.lua` | Calls `WE.initialize()`, which starts the radio menu and event system. This is the only code that runs unconditionally at load. |
 
@@ -107,12 +111,14 @@ WE.EnabledEvents = {            -- master on/off switch per event
     ["VIP_ESCORT"] = true,
     ["BASE_ATTACK"] = true,
     ["STRONGHOLD"] = true,
+    ["CONVOY"] = true,
 }
 
 WE.EventOrder = {               -- display order in the "Spawn Event" submenu;
     "VIP_ESCORT",               -- anything enabled-but-not-listed is appended
     "BASE_ATTACK",              -- at the end automatically
     "STRONGHOLD",
+    "CONVOY",
 }
 ```
 
@@ -124,6 +130,12 @@ WE.VIPEscortEngagementDistMax = 60000      -- meters the escort will break off t
 -- event_baseattack.lua
 WE.AttackerCountry = country.id.RUSSIA     -- country Base Attack spawns under
 WE.EscortEngagementDistMax = 60000         -- same idea, for the Base Attack escort
+
+-- event_convoy.lua (see the Convoy section for the full list)
+WE.ConvoySpeedKph = 30                      -- convoy route speed
+WE.ConvoyArrivalRadiusMeters = 500          -- delivery radius at the destination
+WE.ConvoyTimeoutSeconds = 1800              -- hard deadline (30 minutes)
+WE.ConvoyAllowMultiple = false              -- one convoy at a time by default
 ```
 
 ```lua
@@ -160,7 +172,8 @@ WorldEvents
 ├── Spawn Event
 │   ├── VIP ESCORT      (only shown if WE.EnabledEvents["VIP_ESCORT"] == true)
 │   ├── BASE ATTACK     (only shown if WE.EnabledEvents["BASE_ATTACK"] == true)
-│   └── STRONGHOLD      (only shown if WE.EnabledEvents["STRONGHOLD"] == true)
+│   ├── STRONGHOLD      (only shown if WE.EnabledEvents["STRONGHOLD"] == true)
+│   └── CONVOY          (only shown if WE.EnabledEvents["CONVOY"] == true)
 └── Event Status
 ```
 
@@ -244,6 +257,45 @@ airfield, bombs a random blue airfield, and returns to base.
   and `pos`-offset `Escort` task pattern as VIP Escort, attached to the CAS
   group instead of a transport.
 - On spawn, all players get a text naming both airfields.
+
+### Convoy (`WE.EVENT.CONVOY`)
+
+Spawns a red supply convoy that drives from a rear airfield to a front-line
+airfield. Players must destroy every convoy unit before it arrives or the
+deadline expires.
+
+- **Airfields** · `WE.getConvoyAirdromes()` collects red origins and
+  red/neutral destinations (never blue); origins and destinations must be
+  different airfields. `WE.pickConvoyRoute()` tries several random pairs so a
+  coastal or mountainous pair does not cancel the event immediately.
+- **Route** · the start and destination points are random land positions
+  near the two airfields. `WE.buildConvoyRoute()` creates a 3–5 point ground
+  route, rejecting water and paved waypoints and nudging intermediate points
+  sideways when the direct line crosses water. Routes shorter than
+  `WE.ConvoyMinRouteDistanceMeters` (default 5000 m) are rejected.
+- **Units** · one moving ground group: `WE.ConvoyTruckCount` trucks
+  (default 6, alternating `WE.ConvoyTruckTypes`), `WE.ConvoyEscortCount`
+  armed escorts (default 3, alternating `WE.ConvoyEscortTypes`), plus an
+  optional `WE.ConvoyAAAType` (`"ZSU-23-4 Shilka"`) and `WE.ConvoySAMType`
+  (`"Strela-10M3"`). All names use a unique spawn id, and units spawn in a
+  column so they do not stack.
+- **Timer and tracking** · `WE.convoyTick` runs every 5 seconds. It ends the
+  mission as a failure when the first living unit gets within
+  `WE.ConvoyArrivalRadiusMeters` (default 500 m) of the destination or when
+  `WE.ConvoyTimeoutSeconds` (default 1800 = 30 minutes) expires. It ends as a
+  success once `WE.areAllUnitsDead` confirms every tracked unit is gone.
+  `WE.EVENT.CONVOYEVENT:onEvent` also resolves success immediately on the
+  last `S_EVENT_DEAD`.
+- **Failure consequences** · the convoy is considered delivered and a small
+  red garrison (2x BTR-80 + 1x ZSU-23-4 Shilka) spawns at the destination.
+  The destination is marked on the F10 map when the convoy spawns; the mark
+  is removed when the event ends.
+- **Multiple convoys** · `WE.ConvoyAllowMultiple = false` by default; when
+  enabled, up to `WE.ConvoyMaxConcurrent` convoys can run, each with its own
+  route, timer, mark and status line. `WE.is_active` stays set while any
+  convoy is running.
+- **Status line** · `Convoy: en route from <origin> to <destination>,
+  <seconds> remaining.`
 
 ### Stronghold (`WE.EVENT.STRONGHOLD`)
 
@@ -335,6 +387,12 @@ Each event records its own state on spawn:
 ```lua
 WE.currentVIPEvent = { departure = ..., destination = ..., transportGroupId = ..., fighterGroupId = ... }
 WE.currentBaseAttackEvent = { departure = ..., destination = ..., attackCASGroupGroupId = ..., fighterGroupId = ... }
+WE.currentConvoyEvent = { origin = ..., destination = ..., destinationPoint = ..., groupId = ...,
+                          groupName = ..., unitNames = ..., unitOrder = ..., spawnedAt = ..., endsAt = ...,
+                          delivered = ..., markId = ..., spawnId = ..., ended = ... }
+WE.activeConvoyEvents = {                        -- one entry per active convoy
+    [1] = WE.currentConvoyEvent,
+}
 WE.activeStrongholdEvents = {                    -- one entry per active mission
     [1] = { area = ..., point = ..., airbase = ..., duration = ..., spawnedAt = ..., endsAt = ...,
             unitNames = ..., groups = ..., markId = ..., spawnId = ..., buildingUnitName = ..., ended = ... },
@@ -345,15 +403,16 @@ Each event module registers a status provider with
 `WE.registerEventStatus("<KEY>", provider)` at load time. `WE.showEventStatusAction`
 (the `Event Status` radio item) reports whether `WE.is_active` is set, then calls
 the providers for the enabled events — VIP Escort / Base Attack
-departure-destination, and one line per Stronghold mission
-("Stronghold %d: located near %s, %d seconds remaining."). New events can add
-their own status output without editing `radio.lua`.
+departure-destination, one line per Convoy
+("Convoy: en route from %s to %s, %d seconds remaining."), and one line per
+Stronghold mission ("Stronghold %d: located near %s, %d seconds remaining.").
+New events can add their own status output without editing `radio.lua`.
 
 There's also a per-event `world.addEventHandler` (`WE.EVENT.VIPWING`,
-`WE.EVENT.BASEATTACK`, `WE.EVENT.STRONGHOLDEVENT`) intended to report mission
-success/failure based on whether the spawned aircraft are shot down, land
-safely, shut down engines, or (for Stronghold) the stronghold and defenders
-are destroyed or time runs out.
+`WE.EVENT.BASEATTACK`, `WE.EVENT.STRONGHOLDEVENT`, `WE.EVENT.CONVOYEVENT`)
+intended to report mission success/failure based on whether the spawned
+aircraft are shot down, land safely, shut down engines, or (for ground events)
+the tracked units are destroyed or the timer runs out.
 
 ---
 
@@ -393,8 +452,8 @@ yourself; otherwise it's safe to ignore (or delete) for now.
 ## Known limitations / TODO
 
 - **Shared `is_active` flag.** All events use the same `WE.is_active`, so
-  by design only one world event (of any type) can run at a time. The
-  Stronghold event is the exception — see
-  [Multiple concurrent missions](#multiple-concurrent-missions).
+  by design only one world event (of any type) can run at a time. Stronghold
+  is the exception by default; Convoy can also run multiple missions when
+  `WE.ConvoyAllowMultiple` is enabled.
 - **Troop transport / FOB crate system** — see the section above; present
   in the file but not wired up.

@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WE.nextMarkId` in `includes/state.lua` for collision-free negative F10 marks
 - Event status-provider registry (`WE.registerEventStatus`) in `includes/radio.lua`;
   existing events now register their own providers
+- New **Convoy** world event (`WE.EVENT.CONVOY`) in `includes/event_convoy.lua`
+  - Spawns a red truck/escort convoy that drives from a red airfield to a
+    red or neutral destination across a dynamically built ground route
+  - Destroy all units before arrival or the 30-minute timeout for success
+  - Arrival/timeout delivers reinforcements: a 2x BTR-80 + 1x ZSU-23-4 Shilka
+    garrison spawns at the destination
+  - F10 destination mark, event status provider, `S_EVENT_DEAD` handler and
+    5-second arrival/timeout tick
+  - Optional multiple concurrent convoys via `WE.ConvoyAllowMultiple` /
+    `WE.ConvoyMaxConcurrent`
+  - Added `assets/attn_convoy.ogg` (placeholder alert copied from
+    `attn_attack.ogg` until a dedicated sound is supplied)
 
 ### Changed
 - Stronghold now uses the shared helpers instead of defining them locally

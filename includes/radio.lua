@@ -193,12 +193,13 @@ end
 function WE.spawnEventMenuAction(_eventName)
     WE.logInfo("Spawn Event menu action triggered for '%s'", tostring(_eventName))
     
-    -- Check if an event is already active. Stronghold missions manage their own
-    -- concurrency, so when multiple strongholds are enabled let them through and
-    -- let the stronghold module enforce its own limits.
+    -- Check if an event is already active. Stronghold and Convoy missions manage
+    -- their own concurrency, so when multiple missions are enabled let them
+    -- through and let the event module enforce its own limits.
     if WE.is_active == 1 then
-        local _isStronghold = _eventName == "STRONGHOLD"
-        if not (_isStronghold and WE.StrongholdAllowMultiple) then
+        local _isStronghold = _eventName == "STRONGHOLD" and WE.StrongholdAllowMultiple
+        local _isConvoy = _eventName == "CONVOY" and WE.ConvoyAllowMultiple
+        if not (_isStronghold or _isConvoy) then
             trigger.action.outText("A World Event is already active! Check Event Status for details.", 10)
             return
         end
