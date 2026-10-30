@@ -1,4 +1,436 @@
 
 # DCS-WORLD-EVENTS By BS MYTH
 
-DCS World Events by BS Myth. This script will add dynamic world events to your mission. These events can be accessed through the radio menu item World Event. They can be triggered manually by users with access to the radio item or they can be set to randomly spawn. Only one event can be active at a time and events will have a timer. The world event has its own state management and doenst rely on any external scripts, just plug the script into your mission and go.
+A single drop-in Lua script (`WorldEvents.lua`) that adds dynamic, on-demand
+"world events" to a DCS World mission, events are triggered by players through the F10
+radio menu. No external scripts or frameworks are required.
+
+**Version 0.1.0** — see [changelog.md](changelog.md) for the full history.
+
+## Contents
+- [Overview](#overview)
+- [Installation](#installation)
+- [Script structure](#script-structure)
+- [Configuration](#configuration)
+- [Radio menu](#radio-menu)
+- [Events](#events)
+  - [VIP Escort](#vip-escort-weeventvip_escort)
+  - [Base Attack](#base-attack-weeventbase_attack)
+  - [Stronghold](#stronghold-weeventstronghold)
+- [Event status tracking](#event-status-tracking)
+- [Logging](#logging)
+- [Included but currently inactive: troop transport & FOB crates](#included-but-currently-inactive-troop-transport--fob-crates)
+- [Known limitations / TODO](#known-limitations--todo)
+
+---
+
+## Overview
+
+Players (or specific "radio user" groups, per config) get a **WorldEvents**
+radio menu item. From it they can:
+
+- **Spawn Event** — pick from whichever events are currently enabled, e.g.
+  *VIP Escort* or *Base Attack*.
+- **Event Status** — check whether an event is currently running, and get
+  its departure/destination airfields.
+
+Only one event can be active at a time (`WE.is_active`), and each event
+picks its own airfields at random from whatever's actually on the loaded
+map/mission, so the same script works unmodified across different theatres.
+The **Stronghold** event is the exception: multiple stronghold missions run
+concurrently by default (`WE.StrongholdAllowMultiple = true`, up to
+`WE.StrongholdMaxConcurrent`); set it to `false` to allow only one (see
+[Stronghold](#stronghold-weeventstronghold)). Starting a stronghold is still
+blocked while a different event type is active.
+
+## Installation
+
+1. Add a `DO SCRIPT FILE` (or `DO SCRIPT`) trigger action pointing at
+   `WorldEvents.lua`, on a `MISSION START` trigger (once).
+2. Add the sounds for the events you want to use (see the example missions in
+   `sample-missions/`).
+3. That's it — `WE.initialize()` runs automatically at the bottom of the
+   compiled file and sets up the radio menu and event handlers.
+
+## Script structure and build workflow
+
+The **source** is split into modules under `includes/`; every module is wrapped
+in `-----------------[[ name.lua ]]-----------------` /
+`-----------------[[ END OF name.lua ]]-----------------` delimiters. The game
+only loads the **compiled** `WorldEvents.lua`, which `build.ps1` concatenates
+in the order listed in `includes/_compiler_registry.txt`:
+
+| Section | Contents |
+|---|---|
+| `_header.lua` | Defines the global `WE` table, `WE.Id`, `WE.Version`, and `WE.EVENT`. No delimiters (it is everything before the first module). |
+| `types.lua` | LuaCATS-style `---@class` annotations for DCS's `Unit`, `Group`, `Airbase`, etc., for editor autocomplete/type-checking only — no runtime code. |
+| `config.lua` | All user-tunable settings — see [Configuration](#configuration). |
+| `state.lua` | Runtime state: ID counters, `WE.is_active`, event/handler registries. |
+| `utility.lua` | A large general-purpose helper library — logging, distance/geometry math, and a troop-transport/FOB-crate cargo system (see [below](#included-but-currently-inactive-troop-transport--fob-crates); this part is **not currently wired up**). |
+| `radio.lua` | Builds and tears down the F10 `WorldEvents` menu, access control, and the `Spawn Event` / `Event Status` actions. |
+| `event.lua` | Generic event-handling scaffolding: reacts to players entering/leaving units to (re)build their radio menu, plus `WE.addEvent`/`WE.removeEvent` bookkeeping stubs. |
+| `event_vipwing.lua` | The **VIP Escort** event. |
+| `event_baseattack.lua` | The **Base Attack** event. |
+| `event_stronghold.lua` | The **Stronghold** event. |
+| `init.lua` | Calls `WE.initialize()`, which starts the radio menu and event system. It runs at load and must stay last in the registry; the event modules also register their `world.addEventHandler` handlers at load time. |
+
+After editing `includes/`, rebuild the deployable script:
+
+```powershell
+.\build.ps1 -InputFilePath "WorldEvents.lua"
+```
+
+`build.ps1` writes the combined file to the repo root. To split a compiled file
+back into modules (for example after importing edits made directly in the large
+file), run:
+
+```powershell
+.\extract.ps1 -InputFilePath "WorldEvents.lua"
+```
+
+`extract.ps1` rewrites `includes/*.lua` and regenerates
+`includes/_compiler_registry.txt` in encounter order. `_header.lua` is always
+kept first and is the only module with no delimiters. **Do not hand-edit
+`WorldEvents.lua`** — it is generated output.
+
+---
+
+## Configuration
+
+Everything you're likely to want to tune lives at the top, in `config.lua`
+and the top of each event's own section:
+
+```lua
+-- config.lua
+WE.Debug = true   -- verbose "D" log lines in dcs.log
+WE.Trace = true   -- even more verbose "T" log lines
+
+WE.RadioUsers = {              -- group-name substrings allowed to see the menu
+    [1] = "[Commander]",
+    [2] = "[Patreon]",
+    -- [3] = "All"             -- uncomment for "everyone gets the menu"
+}
+
+WE.EnabledEvents = {            -- master on/off switch per event
+    ["VIP_ESCORT"] = true,
+    ["BASE_ATTACK"] = true,
+    ["STRONGHOLD"] = true,
+}
+
+WE.EventOrder = {               -- display order in the "Spawn Event" submenu;
+    "VIP_ESCORT",               -- anything enabled-but-not-listed is appended
+    "BASE_ATTACK",              -- at the end automatically
+    "STRONGHOLD",
+}
+```
+
+```lua
+-- event_vipwing.lua
+WE.VIPCountry = country.id.RUSSIA          -- country VIP Escort spawns under
+WE.VIPEscortEngagementDistMax = 60000      -- meters the escort will break off to engage an air threat
+
+-- event_baseattack.lua
+WE.AttackerCountry = country.id.RUSSIA     -- country Base Attack spawns under
+WE.EscortEngagementDistMax = 60000         -- defined for the Base Attack escort
+```
+
+> Note: the Base Attack escort task currently reads
+> `WE.VIPEscortEngagementDistMax`, so changing only
+> `WE.EscortEngagementDistMax` has no effect yet. Both default to 60000.
+
+```lua
+-- event_stronghold.lua (see the Stronghold section for the full list)
+WE.StrongholdDurationSeconds = 900          -- mission length in seconds (15 minutes)
+WE.StrongholdAllowMultiple = true           -- run several strongholds at once (default)
+WE.StrongholdMaxConcurrent = 5              -- max simultaneous missions (when enabled)
+WE.StrongholdOffsetMin = 4630               -- min distance (m) from the airdrome center
+WE.StrongholdOffsetMax = 7408               -- max distance (m) from the airdrome center
+WE.StrongholdRunwayMinDistance = 4630       -- min distance (m) from any runway (2.5 nm)
+WE.StrongholdMaxSlope = 3                   -- max terrain height change (m) across the footprint
+```
+
+`WE.RadioUsers` works as a substring match against each player's **group
+name** (not their in-game player name) — a group named `Player-1-Viper`
+would match the `"Player"` entry, for example. Add `"All"` (any case) to
+give every group the menu regardless of name.
+
+---
+
+## Radio menu
+
+The menu is built per-player-group (`WE.initializePlayerRadioMenu`), and is
+rebuilt automatically whenever a player enters or spawns into a unit
+(`S_EVENT_PLAYER_ENTER_UNIT` / `S_EVENT_BIRTH`) and torn down when they
+leave (`S_EVENT_PLAYER_LEAVE_UNIT`) — handled centrally in `event.lua`'s
+`WE.onPlayerEvent`. If `"All"` is set in `WE.RadioUsers`, a single global
+menu is built once instead of per-group (`WE.initializeRadioMenu`).
+
+Menu layout:
+
+```
+WorldEvents
+├── Spawn Event
+│   ├── VIP ESCORT      (only shown if WE.EnabledEvents["VIP_ESCORT"] == true)
+│   ├── BASE ATTACK     (only shown if WE.EnabledEvents["BASE_ATTACK"] == true)
+│   └── STRONGHOLD      (only shown if WE.EnabledEvents["STRONGHOLD"] == true)
+└── Event Status
+```
+
+`Spawn Event` is generated dynamically from config — `WE.getEnabledEventNames()`
+returns the enabled events in `WE.EventOrder`, `WE.getEventDisplayName()`
+turns each key into a readable label (`BASE_ATTACK` → `BASE ATTACK`), and one
+radio command per event is created, each passing its event name through to
+the shared handler:
+
+```lua
+function WE.spawnEventMenuAction(_eventName)
+    if WE.is_active == 1 then
+        -- Strongholds manage their own concurrency when enabled
+        if not (_eventName == "STRONGHOLD" and WE.StrongholdAllowMultiple) then
+            ... return
+        end
+    end
+    if not WE.EnabledEvents[_eventName] then ... return end
+    if not WE.EVENT[_eventName] then ... return end
+    WE.EVENT[_eventName]()
+    trigger.action.outSound("vip-enroute.wav")
+end
+```
+
+**To add a new event:**
+
+1. Create `includes/event_<name>.lua` (wrapped in the standard delimiters).
+2. Add that filename to `includes/_compiler_registry.txt` **before `init.lua`**.
+3. Implement `WE.EVENT.YOUR_EVENT()` in the module.
+4. Add `"YOUR_EVENT"` to both `WE.EnabledEvents` and `WE.EventOrder` in
+   `config.lua`.
+5. Optionally add a `world.addEventHandler(...)` win/lose handler and update
+   `WE.showEventStatusAction` in `radio.lua` if the event should report status.
+6. Rebuild with `build.ps1`.
+
+No other radio menu code needs to change — the menu is generated from config.
+
+---
+
+## Events
+
+All events follow the same overall pattern: pick real locations from the
+currently loaded map/mission (so nothing is hardcoded to a specific theatre),
+spawn the relevant red units with dynamic route/task data, and report
+success/failure through a per-event DCS event handler.
+
+### VIP Escort (`WE.EVENT.VIP_ESCORT`)
+
+Spawns a VIP transport flight with a 4-ship fighter escort, flying from one
+random red-controlled airfield to another.
+
+- **Airfields** — `WE.getRedAirdromes()` collects every currently
+  red-owned, `Airbase.Category.AIRDROME` base (via `coalition.getAirbases`,
+  so ownership changes in a dynamic campaign are respected; ships/FARPs/
+  helipads are excluded since the transport can't use them).
+  `WE.pickVIPAirfields()` keeps only airdromes with a runway at least
+  `WE.VIPMinRunwayLengthMeters` (default 1000 m) long for the C-130, then picks
+  two different ones. If fewer than two suitable red airdromes exist, the event
+  cancels cleanly instead of erroring.
+- **Route**: the transport flies `From Runway` at the departure airfield
+  straight to a `Land` waypoint at the destination. The **fighter escort**
+  adds a 10 NM rendezvous waypoint along the departure→destination line (so it
+  joins up with the transport instead of racing ahead), then lands at the
+  destination.
+- **Escort**: 4x MiG-29 Fulcrum, tasked with DCS's `Escort` task pointed at
+  the transport's *actual* spawned group ID (captured from the `Group`
+  object returned by `coalition.addGroup`, not a pre-guessed one — DCS will
+  silently reassign a requested ID if it collides with another group
+  already in the mission, so the real one has to be read back after
+  spawning). Station-keeping offset is set via the task's `pos` field
+  (behind and to the side of the transport), and `engagementDistMax`
+  (`WE.VIPEscortEngagementDistMax`) controls how far they'll break off to
+  fight an air threat before returning to escort.
+- On spawn, all players get a text naming both airfields so they know where
+  to look.
+
+### Base Attack (`WE.EVENT.BASE_ATTACK`)
+
+Spawns an enemy CAS strike package ("ShAP") that takes off from a red
+airfield, attacks ground targets around a random blue airfield, and returns
+to base.
+
+- **Airfields** — `WE.getAirdromes(side)` is the same idea as VIP Escort's
+  airfield helper, but parameterized by coalition side. `WE.pickAirfields()`
+  picks a **red** departure airfield and a **blue** destination (the
+  target), each independently at random.
+- **Units** — 3x Su-25 ("ShAP"), livery and loadout taken from an exported
+  static template (`shap.stm`).
+- **Route**: Takeoff from the red departure airfield (carrying the group's
+  enroute tasking — engage helicopters/ground units/light armed ships, ROE
+  Open Fire, Reaction to Threat Evade Fire) → transit to the destination at a
+  terrain-safe cruise altitude (`_safeCruiseAlt`, sampled from the highest of
+  5 ground heights along the leg) → descend to a low attack altitude
+  (`_attackAlt`, ~500 m AGL over the airfield) and run an
+  `EngageTargetsInZone` task (10 km radius, ground-unit target types only) →
+  Land back at the **same** airfield they departed from. DCS's own AI already
+  diverts to RTB on low fuel before reaching the final waypoint if needed, so
+  no separate bingo-fuel logic was required.
+- **Escort**: 4x MiG-29 Fulcrum, using the same real-group-ID-after-spawn
+  and `pos`-offset `Escort` task pattern as VIP Escort, attached to the CAS
+  group instead of a transport.
+- On spawn, all players get a text naming both airfields.
+
+### Stronghold (`WE.EVENT.STRONGHOLD`)
+
+Spawns a red stronghold — a destructible building defended by ground troops and
+a short-range SAM — at a random location. Players must destroy the stronghold
+**and** every defender before a countdown timer expires.
+
+- **Location** — `WE.pickStrongholdLocation()` merges all **red and neutral**
+  airdromes (never blue, so it can't land on a player base) and picks one at
+  random, then places the stronghold at a random offset (4630–7408 m,
+  `WE.StrongholdOffsetMin`/`Max`) and random bearing from it, using
+  `land.getHeight()` for the ground elevation so it works on any map. The
+  spawn zone must be at least `WE.StrongholdRunwayMinDistance` (default
+  4630 m = 2.5 nm) from **any runway** of the chosen airdrome — measured
+  perpendicular to the full runway segment (via a cached list of
+  `Airbase:getRunways()` segments), not just its endpoints, so it holds even
+  on maps with long runways. Spawn points are checked with
+  `land.getSurfaceType` and retried until they're on land — `WATER`,
+  `SHALLOW_WATER`, `RUNWAY` and `ROAD` are all rejected, so nothing spawns in
+  the sea, on the shore, on a taxiway/apron, or on a road. Points on terrain
+  steeper than `WE.StrongholdMaxSlope` (default 3 m across the sampled
+  footprint) are rejected too, so the bunker and vehicles always sit on flat
+  ground.
+- **One airfield per mission** — airdromes that already host an *active*
+  stronghold mission are excluded when picking the location, so two missions
+  never double up on the same airfield. If every available airfield is
+  already in use, the spawn is cancelled cleanly.
+- **Units** — three red ground groups, all tracked in mission state
+  (`WE.activeStrongholdEvents`, one entry per mission):
+  - the building itself, spawned as a destructible ground *fortification* unit
+    (`WE.StrongholdBuildingType`, default `"Bunker"`) rather than a static
+    object, so its destruction reliably fires `S_EVENT_DEAD`;
+  - a short-range SAM (`WE.StrongholdSAMType`, default `"Strela-10M3"`);
+  - infantry spread around the building (`WE.StrongholdInfantryType`, default
+    `"Infantry AK"`, `WE.StrongholdInfantryCount`, default 4).
+  All group/unit names are suffixed with a unique per-spawn id so re-running
+  the event after a failure never collides with surviving red units.
+- **Timer** — starts when the stronghold is spawned and runs for
+  `WE.StrongholdDurationSeconds` (default 900 = 15 minutes). A 1-second
+  periodic tick announces the remaining whole minutes as they change and, on
+  reaching 0, ends the event (see
+  [Failure consequences](#failure-consequences) below).
+- **Win condition** — `WE.EVENT.STRONGHOLDEVENT:onEvent` listens for
+  `S_EVENT_DEAD` on any tracked unit; when *all* spawned units (building + SAM
+  + infantry) are destroyed it ends the event as a **success**.
+- **Multiple concurrent missions** — enabled by default
+  (`WE.StrongholdAllowMultiple = true`) up to
+  `WE.StrongholdMaxConcurrent` (default 5) missions simultaneously; set
+  `StrongholdAllowMultiple = false` to allow only one stronghold at a time.
+  Each mission keeps its own state (position, spawned units, countdown, F10
+  mark), the shared countdown tick walks all of them, the `S_EVENT_DEAD`
+  handler resolves each mission independently, and the global `WE.is_active`
+  flag stays set while **any** mission is running. Starting a stronghold is
+  still blocked while a *different* event type (VIP Escort / Base Attack) is
+  active.
+- **Failure consequences** — when the timer runs out:
+  - if the **bunker was already destroyed** (some defenders survived the
+    clock), the attack succeeded: the airfield is **not** captured and
+    players see *"The stronghold has been successfully destroyed, remaining
+    troops have scattered."*;
+  - otherwise the stronghold captures the nearby airfield:
+    - if the airdrome is still neutral it is flipped to red
+      (`Airbase:setCoalition`, with `autoCapture(false)` so it stays red);
+    - red defenders are spawned around the airfield (3x
+      `WE.StrongholdDefenseTankType` "T-72B3", 2x
+      `WE.StrongholdDefenseAPCType` "BTR-80", 2x
+      `WE.StrongholdDefenseSAMType` "Strela-10M3"), but only when fewer than
+      `WE.StrongholdDefenseMinRedUnits` (default 4) red ground units are
+      already stationed within `WE.StrongholdDefenseRadius` (default 5000 m)
+      of the airfield. The stronghold's own garrison is excluded from the
+      count — only red units already at the airfield count, so already
+      defended bases don't get double-garrisoned. Spawn distances are bounded
+      by `WE.StrongholdDefenseSpawnMin`/`Max` (300–1500 m), every defense
+      spawn point is retried until it's on land, and each mission's defenders
+      use its own unique `spawnId` so every captured airfield gets its own
+      garrison.
+  Finally, the bunker and the stronghold's original defenders are removed
+  from the battlefield.
+- On spawn, all players get a text with the location, remaining time, and an
+  F10 map mark (`markToAll`) that is removed when the event ends. With
+  multiple missions enabled the message numbers each mission
+  ("STRONGHOLD 2 of 5 ...") and the F10 marks are unique per mission.
+
+---
+
+## Event status tracking
+
+Each event records its own state on spawn:
+
+```lua
+WE.currentVIPEvent = { departure = ..., destination = ..., transportGroupId = ..., fighterGroupId = ... }
+WE.currentBaseAttackEvent = { departure = ..., destination = ..., attackCASGroupGroupId = ..., fighterGroupId = ... }
+WE.activeStrongholdEvents = {                    -- one entry per active mission
+    [1] = { area = ..., point = ..., airbase = ..., duration = ..., spawnedAt = ..., endsAt = ...,
+            unitNames = ..., groups = ..., markId = ..., spawnId = ..., buildingUnitName = ..., ended = ... },
+}
+```
+
+`WE.showEventStatusAction` (the `Event Status` radio item) reports whether
+`WE.is_active` is set, and currently also prints each active event's key
+details — VIP Escort / Base Attack departure-destination, and one line per
+Stronghold mission ("Stronghold %d: located near %s, %d seconds remaining.").
+
+There's also a per-event `world.addEventHandler` (`WE.EVENT.VIPWING`,
+`WE.EVENT.BASEATTACK`, `WE.EVENT.STRONGHOLDEVENT`) intended to report mission
+success/failure based on whether the spawned aircraft are shot down, land
+safely, shut down engines, or (for Stronghold) the stronghold and defenders
+are destroyed or time runs out.
+
+---
+
+## Logging
+
+Everything logs through `WE.logError` / `WE.logWarning` / `WE.logInfo` /
+`WE.logDebug` / `WE.logTrace` to `dcs.log`, each prefixed with `WE.Id`
+(`"World Event - "`) and a severity marker (`E`/`W`/`I`/`D`/`T`). `WE.Debug`
+and `WE.Trace` in config gate the two most verbose levels — turn both off
+for a quieter log in a live/production mission.
+
+---
+
+## Included but currently inactive: troop transport & FOB crates
+
+`utility.lua` contains a substantial helicopter troop-transport and FOB
+(forward operating base) resupply system: loading/unloading troops or
+vehicles from helicopters at pickup/dropoff zones, extracting dropped
+troops, delivering FOB crates, generating troop loadouts by role (AA, MG,
+AT, mortar, JTAC), and an AI auto-load/unload loop (`WE.checkAIStatus`).
+
+**This subsystem is not currently active.** It depends on a number of
+globals — `WE.extractZones`, `WE.inPickupZone`/`WE.inDropoffZone`/
+`WE.inLogisticsZone`, `WE.droppedTroopsRED`/`BLUE`,
+`WE.vehiclesForTransportRED`/`BLUE`, `WE.transportPilotNames`,
+`WE.maxExtractDistance`, `WE.numberOfTroops`, `WE.SOLDIER_WEIGHT`, etc. —
+that are referenced throughout but **never defined anywhere in this file**,
+and its scheduler (`WE.checkAIStatus`) is never started from
+`WE.initialize()`. It looks like leftover/imported groundwork from a
+separate troop-transport script rather than something built for the current
+events. If you want to use it, you'll need to define those zone/config
+globals and kick off `WE.checkAIStatus()` yourself; otherwise it's safe to
+ignore (or delete) for now.
+
+---
+
+## Known limitations / TODO
+
+- **Shared `is_active` flag.** All events use the same `WE.is_active`, so
+  by design only one world event (of any type) can run at a time. The
+  Stronghold event is the exception — see
+  [Multiple concurrent missions](#multiple-concurrent-missions).
+- **Missing sound file.** `WE.spawnEventMenuAction` calls
+  `trigger.action.outSound("vip-enroute.wav")` after any event spawns, but
+  `assets/` only ships `attn_vip.ogg`, `attn_attack.ogg` and
+  `attn_stronghold.ogg`. Add `vip-enroute.wav` or remove/replace that call.
+- **Base Attack escort config.** The escort task reads
+  `WE.VIPEscortEngagementDistMax`; `WE.EscortEngagementDistMax` is currently
+  unused (both default to 60000).
+- **Troop transport / FOB crate system** — see the section above; present
+  in the file but not wired up.
