@@ -31,6 +31,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `WE.ConvoyMaxConcurrent`
   - Added `assets/attn_convoy.ogg` (placeholder alert copied from
     `attn_attack.ogg` until a dedicated sound is supplied)
+- New **IADS** world event (`WE.EVENT.IADS`) in `includes/event_iads.lua`
+  - Spawns an integrated air-defence network around a dynamic red airdrome
+    (neutral fallback, never blue): three functional SAM sites, one `55G6 EWR`
+    early-warning radar, and one `Bunker` command node
+  - SAM sites are randomly chosen from Kub (`Kub 1S91 str` + 2x
+    `Kub 2P25 ln`), Buk (`SA-11 Buk CC 9S470M1` + `SA-11 Buk SR 9S18M1` +
+    `SA-11 Buk LN 9A310M1`), and Tor (`Tor 9A331`), with repeats allowed
+  - All network units spawn at `High` skill via the shared ground-unit helper's
+    optional skill argument
+  - Sites respect a 6–18 km placement band, flatness, runway spacing, Blue-base
+    spacing, and inter-site spacing; unplaceable sites are skipped so a partial
+    network can still spawn, and the event cancels cleanly when no site places
+  - Destroy every tracked unit within 900 seconds for success; on timeout the
+    event fails, removes its mark, and leaves all surviving units active with
+    no retaliation strike
+  - One area-only F10 `Suspected SIGINT activity near <area>` mark, event status
+    provider, `S_EVENT_DEAD` handler, and a 10-second whole-minute countdown tick
+  - Single-instance state in `WE.currentIADSEvent` with unique names via
+    `WE.iadsSpawnCounter`
+  - Added `assets/attn_iads.ogg` (placeholder alert copied from
+    `attn_attack.ogg` until a dedicated sound is supplied)
 
 ### Changed
 - Stronghold now uses the shared helpers instead of defining them locally
