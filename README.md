@@ -430,9 +430,10 @@ radar, and a bunker command node — around a red airdrome. Blue must destroy
     launcher;
   - **Tor** — one self-contained `Tor 9A331`.
 
-  One independent `55G6 EWR` early-warning radar is placed in the same band,
-  and one destructible `Bunker` (`WE.IADSCommandType`) is placed at the anchor
-  as the command node. Every unit spawns at `WE.IADSSkill` (default `High`).
+  One independent `55G6 EWR` early-warning radar is placed in the same band
+  (if no legal point is found the network continues without it), and one
+  destructible `Bunker` (`WE.IADSCommandType`) is placed at the anchor as the
+  command node. Every unit spawns at `WE.IADSSkill` (default `High`).
 - **Placement rules** — candidate points sit `WE.IADSPlacementMin`–`Max`
   (default 6000–18000 m) from the anchor and must be on land, flat to within
   `WE.IADSMaxSlope` (default 5 m), at least `WE.IADSRunwayMinDistance` (3000 m)

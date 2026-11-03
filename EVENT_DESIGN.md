@@ -403,7 +403,8 @@ avoidance rather than a single bombing run.
   - Buk: one `SA-11 Buk CC 9S470M1`, one `SA-11 Buk SR 9S18M1`, and one
     `SA-11 Buk LN 9A310M1`.
   - Tor: one `Tor 9A331`.
-- EWR type: one independent `55G6 EWR` placed in the same band.
+- EWR type: one independent `55G6 EWR` placed in the same band; if no legal
+  point is found the network continues without it.
 - Command node: destructible `Bunker` ground unit so `S_EVENT_DEAD` fires.
 - No optional AAA/Shilka is placed.
 - Every network unit spawns at `WE.IADSSkill` (default `High`), using the shared
