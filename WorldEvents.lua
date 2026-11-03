@@ -5420,7 +5420,8 @@ end
 --- @return table|nil point {x, y, z}
 function WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _placedPoints)
     local _anchorPoint = _anchor:getPoint()
-    for _ = 1, WE.IADSPlacementAttempts do
+    local _attempts = math.max(1, WE.IADSPlacementAttempts or 1)
+    for _ = 1, _attempts do
         local _point = WE.randomLandPoint(_anchorPoint.x, _anchorPoint.z,
             WE.IADSPlacementMin, WE.IADSPlacementMax, 10)
         if _point then
@@ -5640,6 +5641,24 @@ function WE.iadsTick()
     return _now + WE.IADSTickIntervalSeconds
 end
 
+--- Cancel an in-progress IADS spawn. Destroys any groups already placed,
+--- removes a mark if one was placed, stops a scheduled tick if one was started,
+--- and releases the event state and global lock.
+--- @param _groups table|nil groups spawned so far
+--- @param _markId number|nil mark id placed so far
+--- @param _timerHandle number|nil scheduled tick handle
+function WE.cancelIADSSpawn(_groups, _markId, _timerHandle)
+    WE.destroyGroupList(_groups)
+    if _markId then
+        trigger.action.removeMark(_markId)
+    end
+    if _timerHandle and type(timer.removeFunction) == "function" then
+        timer.removeFunction(_timerHandle)
+    end
+    WE.currentIADSEvent = nil
+    WE.is_active = 0
+end
+
 --- Spawn the IADS network event.
 function WE.EVENT.IADS()
     WE.logInfo("IADS event triggered")
@@ -5690,27 +5709,6 @@ function WE.EVENT.IADS()
 
     local _blueAirdromes = WE.getAirdromes('blue')
     local _siteCount = math.max(1, WE.IADSSiteCount or 1)
-    local _sitePoints = {}
-    local _siteDefs = {}
-    for _i = 1, _siteCount do
-        local _point = WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _sitePoints)
-        if not _point then
-            trigger.action.outText(string.format(
-                "IADS event could not start: no legal SAM site location near %s!", _areaName), 10)
-            WE.logError("IADS: no site location near %s - event cancelled", tostring(_areaName))
-            return
-        end
-        table.insert(_sitePoints, _point)
-        table.insert(_siteDefs, _samTypes[math.random(1, #_samTypes)])
-    end
-
-    local _radarPoint = WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _sitePoints)
-    if not _radarPoint then
-        trigger.action.outText(string.format(
-            "IADS event could not start: no legal radar location near %s!", _areaName), 10)
-        WE.logError("IADS: no radar location near %s - event cancelled", tostring(_areaName))
-        return
-    end
 
     WE.iadsSpawnCounter = WE.iadsSpawnCounter + 1
     local _spawnId = WE.iadsSpawnCounter
@@ -5718,44 +5716,68 @@ function WE.EVENT.IADS()
     local _groups = {}
     local _unitNames = {}
     local _sites = {}
-
-    for _i, _point in ipairs(_sitePoints) do
-        local _siteDef = _siteDefs[_i]
-        local _group, _unitNameList = WE.spawnIADSSite(_i, _siteDef, _point, _spawnId)
-        if not _group then
-            WE.destroyGroupList(_groups)
-            trigger.action.outText("Failed to spawn the IADS SAM site!", 10)
-            return
-        end
-        table.insert(_groups, _group)
-        for _, _unitName in ipairs(_unitNameList) do
-            _unitNames[_unitName] = true
-        end
-        table.insert(_sites, {
-            type = _siteDef.name,
-            group = _group,
-            unitNames = _unitNameList,
-            point = _point,
-        })
-    end
-
-    local _radarGroup, _radarUnitName = WE.spawnIADSRadar(_radarPoint, _spawnId)
-    if not _radarGroup then
-        WE.destroyGroupList(_groups)
-        trigger.action.outText("Failed to spawn the IADS radar!", 10)
-        return
-    end
-    table.insert(_groups, _radarGroup)
-    _unitNames[_radarUnitName] = true
+    local _placedPoints = {}
 
     local _commandGroup, _commandUnitName = WE.spawnIADSCommandNode(_commandPoint, _spawnId)
     if not _commandGroup then
-        WE.destroyGroupList(_groups)
+        WE.cancelIADSSpawn(_groups, nil, nil)
         trigger.action.outText("Failed to spawn the IADS command node!", 10)
         return
     end
     table.insert(_groups, _commandGroup)
     _unitNames[_commandUnitName] = true
+
+    for _i = 1, _siteCount do
+        local _point = WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _placedPoints)
+        if not _point then
+            WE.logWarning("IADS: no legal location for site %d of %d near %s - skipping site",
+                _i, _siteCount, tostring(_areaName))
+        else
+            local _siteDef = _samTypes[math.random(1, #_samTypes)]
+            local _group, _unitNameList = WE.spawnIADSSite(_i, _siteDef, _point, _spawnId)
+            if not _group then
+                WE.logWarning("IADS: site %d failed to spawn near %s - skipping site",
+                    _i, tostring(_areaName))
+            else
+                table.insert(_groups, _group)
+                for _, _unitName in ipairs(_unitNameList) do
+                    _unitNames[_unitName] = true
+                end
+                table.insert(_sites, {
+                    type = _siteDef.name,
+                    group = _group,
+                    unitNames = _unitNameList,
+                    point = _point,
+                })
+                table.insert(_placedPoints, _point)
+            end
+        end
+    end
+
+    if #_sites == 0 then
+        WE.cancelIADSSpawn(_groups, nil, nil)
+        trigger.action.outText(string.format(
+            "IADS event could not start: no legal SAM site location near %s!", _areaName), 10)
+        WE.logError("IADS: no site location near %s - event cancelled", tostring(_areaName))
+        return
+    end
+
+    local _radarSpawned = false
+    local _radarPoint = WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _placedPoints)
+    if not _radarPoint then
+        WE.logWarning("IADS: no legal radar location near %s - continuing without radar",
+            tostring(_areaName))
+    else
+        local _radarGroup, _radarUnitName = WE.spawnIADSRadar(_radarPoint, _spawnId)
+        if not _radarGroup then
+            WE.logWarning("IADS: radar failed to spawn near %s - continuing without radar",
+                tostring(_areaName))
+        else
+            table.insert(_groups, _radarGroup)
+            _unitNames[_radarUnitName] = true
+            _radarSpawned = true
+        end
+    end
 
     local _now = timer.getTime()
     local _markId = WE.getNextMarkId()
@@ -5791,8 +5813,9 @@ function WE.EVENT.IADS()
         _areaName, _minutes), 20)
     trigger.action.outSound(WE.IADSSound)
 
-    WE.logInfo("IADS event spawned near %s: %d site(s), 1 radar, 1 command node, %d tracked unit(s)",
-        tostring(_areaName), #_sites, WE.countTableEntries(_unitNames))
+    WE.logInfo("IADS event spawned near %s: %d site(s), %s, 1 command node, %d tracked unit(s)",
+        tostring(_areaName), #_sites, _radarSpawned and "1 radar" or "no radar",
+        WE.countTableEntries(_unitNames))
 end
 
 WE.registerEventStatus("IADS", function()
