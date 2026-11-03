@@ -19,6 +19,7 @@ radio menu. No external scripts or frameworks are required.
   - [Base Attack](#base-attack-weeventbase_attack)
   - [Convoy](#convoy-weeventconvoy)
   - [Stronghold](#stronghold-weeventstronghold)
+  - [IADS](#iads-weeventiads)
 - [Event status tracking](#event-status-tracking)
 - [Logging](#logging)
 - [Included but currently inactive: troop transport & FOB crates](#included-but-currently-inactive-troop-transport--fob-crates)
@@ -32,7 +33,7 @@ Players (or specific "radio user" groups, per config) get a **WorldEvents**
 radio menu item. From it they can:
 
 - **Spawn Event** — pick from whichever events are currently enabled, e.g.
-  *VIP Escort*, *Convoy* or *Base Attack*.
+  *VIP Escort*, *Convoy*, *Base Attack*, *Stronghold*, or *IADS*.
 - **Event Status** — check whether an event is currently running, and get
   its departure/destination airfields.
 
@@ -70,6 +71,7 @@ The file is one script but organized into clearly-delimited sections
 | `event_baseattack.lua` | The **Base Attack** event. |
 | `event_convoy.lua` | The **Convoy** event. |
 | `event_stronghold.lua` | The **Stronghold** event. |
+| `event_iads.lua` | The **IADS** event. |
 | `init.lua` | Calls `WE.initialize()`, which starts the radio menu and event system. This is the only code that runs unconditionally at load. |
 
 ### Shared event helpers
@@ -112,6 +114,7 @@ WE.EnabledEvents = {            -- master on/off switch per event
     ["BASE_ATTACK"] = true,
     ["STRONGHOLD"] = true,
     ["CONVOY"] = true,
+    ["IADS"] = true,
 }
 
 WE.EventOrder = {               -- display order in the "Spawn Event" submenu;
@@ -119,6 +122,7 @@ WE.EventOrder = {               -- display order in the "Spawn Event" submenu;
     "BASE_ATTACK",              -- at the end automatically
     "STRONGHOLD",
     "CONVOY",
+    "IADS",
 }
 ```
 
@@ -149,6 +153,24 @@ WE.StrongholdRunwayMinDistance = 4630       -- min distance (m) from any runway 
 WE.StrongholdMaxSlope = 3                   -- max terrain height change (m) across the footprint
 ```
 
+```lua
+-- event_iads.lua (see the IADS section for the full list)
+WE.IADSCountry = country.id.RUSSIA          -- country the network spawns under
+WE.IADSSiteCount = 3                        -- SAM sites per network
+WE.IADSSkill = "High"                       -- skill level for every network unit
+WE.IADSPlacementMin = 6000                  -- min distance (m) from the anchor
+WE.IADSPlacementMax = 18000                 -- max distance (m) from the anchor
+WE.IADSBlueBaseMinDistance = 5000           -- min distance (m) from any blue airfield
+WE.IADSDurationSeconds = 900                -- time limit (15 minutes)
+WE.IADSMarkMode = "area"                    -- area-only SIGINT mark (the only supported mode)
+WE.IADSEnabled = true                       -- second on/off switch inside the module
+```
+
+The full `WE.IADS*` surface covers country, site count, SAM compositions, skill,
+command-node and radar types, the placement band, runway/site/blue-base spacing,
+flatness tolerance, placement attempts, duration, tick interval, mark mode,
+alert sound, and the module's secondary enable flag.
+
 `WE.RadioUsers` works as a substring match against each player's **group
 name** (not their in-game player name) — a group named `Player-1-Viper`
 would match the `"Player"` entry, for example. Add `"All"` (any case) to
@@ -173,7 +195,8 @@ WorldEvents
 │   ├── VIP ESCORT      (only shown if WE.EnabledEvents["VIP_ESCORT"] == true)
 │   ├── BASE ATTACK     (only shown if WE.EnabledEvents["BASE_ATTACK"] == true)
 │   ├── STRONGHOLD      (only shown if WE.EnabledEvents["STRONGHOLD"] == true)
-│   └── CONVOY          (only shown if WE.EnabledEvents["CONVOY"] == true)
+│   ├── CONVOY          (only shown if WE.EnabledEvents["CONVOY"] == true)
+│   └── IADS            (only shown if WE.EnabledEvents["IADS"] == true)
 └── Event Status
 ```
 
@@ -387,6 +410,62 @@ a short-range SAM — at a random location. Players must destroy the stronghold
   multiple missions enabled the message numbers each mission
   ("STRONGHOLD 2 of 5 ...") and the F10 marks are unique per mission.
 
+### IADS (`WE.EVENT.IADS`)
+
+Spawns an integrated air-defence network — dispersed SAM sites, an early-warning
+radar, and a bunker command node — around a red airdrome. Blue must destroy
+**every tracked unit** before the 15-minute window closes.
+
+- **Anchor** — `WE.pickIADSAnchor()` prefers a random red airdrome and falls
+  back to a neutral one only when the map has no red airdrome. Blue airdromes
+  are never used, so the network cannot appear on a player base. The anchor's
+  name is the player-facing **area**.
+- **Network composition** — `WE.IADSSiteCount` (default 3) SAM sites are chosen
+  at random from `WE.IADSSAMTypes` (repeats allowed). Each site is one
+  functional group:
+  - **Kub** — one `Kub 1S91 str` search/track radar plus two `Kub 2P25 ln`
+    launchers;
+  - **Buk** — one `SA-11 Buk CC 9S470M1` command vehicle, one
+    `SA-11 Buk SR 9S18M1` search radar, and one `SA-11 Buk LN 9A310M1`
+    launcher;
+  - **Tor** — one self-contained `Tor 9A331`.
+
+  One independent `55G6 EWR` early-warning radar is placed in the same band,
+  and one destructible `Bunker` (`WE.IADSCommandType`) is placed at the anchor
+  as the command node. Every unit spawns at `WE.IADSSkill` (default `High`).
+- **Placement rules** — candidate points sit `WE.IADSPlacementMin`–`Max`
+  (default 6000–18000 m) from the anchor and must be on land, flat to within
+  `WE.IADSMaxSlope` (default 5 m), at least `WE.IADSRunwayMinDistance` (3000 m)
+  from the anchor's runways, at least `WE.IADSSiteMinDistance` (3000 m) from
+  already-placed points, and at least `WE.IADSBlueBaseMinDistance` (5000 m) from
+  every Blue airdrome. Each site and the radar gets `WE.IADSPlacementAttempts`
+  (default 8) tries; a site that cannot be placed is skipped and the network
+  spawns with the sites that did place. The event cancels cleanly if no site
+  places at all.
+- **Tracked units and win condition** — every site unit, the EWR, and the
+  command node are tracked. `WE.EVENT.IADSEVENT:onEvent` listens for
+  `S_EVENT_DEAD` and ends the event as a **success** when
+  `WE.areAllUnitsDead` reports the whole tracked set is gone. The command node
+  is required but not sufficient on its own: destroying it does not shortcut
+  the event.
+- **Timeout** — the network runs for `WE.IADSDurationSeconds` (default 900 =
+  15 minutes). `WE.iadsTick` runs every `WE.IADSTickIntervalSeconds` (10 s),
+  announces the remaining whole minutes when the value changes, and on expiry
+  fails once with a mission-failed message. **There is no retaliation strike
+  package**: every surviving network unit stays alive and dangerous, the F10
+  mark is removed, the tick stops, and `WE.is_active` is released.
+- **F10 disclosure** — only one **area** mark is placed, labelled
+  `Suspected SIGINT activity near <area>`, at the anchor. Exact per-site marks
+  are not implemented; `WE.IADSMarkMode` currently accepts only `"area"` and
+  falls back to it with a log warning otherwise. The mark is removed when the
+  event ends.
+- **Single instance** — the event uses `WE.currentIADSEvent` and is gated like
+  VIP Escort and Base Attack. It cannot start while another event is active and
+  blocks other events while it runs. Group and unit names use
+  `WE.iadsSpawnCounter` so repeated runs never collide with survivors.
+- **Status line** — `IADS: <n> site(s) active near <area>, <seconds>
+  remaining.` The count is live SAM sites, not radar or command-node units.
+
 ---
 
 ## Event status tracking
@@ -406,6 +485,11 @@ WE.activeStrongholdEvents = {                    -- one entry per active mission
     [1] = { area = ..., point = ..., airbase = ..., duration = ..., spawnedAt = ..., endsAt = ...,
             unitNames = ..., groups = ..., markId = ..., spawnId = ..., buildingUnitName = ..., ended = ... },
 }
+WE.currentIADSEvent = {                          -- the single active IADS network
+    area = ..., point = ..., airbase = ..., sites = { { type = ..., group = ..., unitNames = ..., point = ... }, ... },
+    groups = ..., unitNames = ..., spawnId = ..., spawnedAt = ..., endsAt = ...,
+    markId = ..., lastAnnouncedMinutes = ..., ended = ...,
+}
 ```
 
 Each event module registers a status provider with
@@ -413,15 +497,16 @@ Each event module registers a status provider with
 (the `Event Status` radio item) reports whether `WE.is_active` is set, then calls
 the providers for the enabled events — VIP Escort / Base Attack
 departure-destination, one line per Convoy
-("Convoy: en route from %s to %s, %d seconds remaining."), and one line per
-Stronghold mission ("Stronghold %d: located near %s, %d seconds remaining.").
+("Convoy: en route from %s to %s, %d seconds remaining."), one line per
+Stronghold mission ("Stronghold %d: located near %s, %d seconds remaining."),
+and the IADS line ("IADS: %d site(s) active near %s, %d seconds remaining.").
 New events can add their own status output without editing `radio.lua`.
 
 There's also a per-event `world.addEventHandler` (`WE.EVENT.VIPWING`,
-`WE.EVENT.BASEATTACK`, `WE.EVENT.STRONGHOLDEVENT`, `WE.EVENT.CONVOYEVENT`)
-intended to report mission success/failure based on whether the spawned
-aircraft are shot down, land safely, shut down engines, or (for ground events)
-the tracked units are destroyed or the timer runs out.
+`WE.EVENT.BASEATTACK`, `WE.EVENT.STRONGHOLDEVENT`, `WE.EVENT.CONVOYEVENT`,
+`WE.EVENT.IADSEVENT`) intended to report mission success/failure based on
+whether the spawned aircraft are shot down, land safely, shut down engines, or
+(for ground events) the tracked units are destroyed or the timer runs out.
 
 ---
 

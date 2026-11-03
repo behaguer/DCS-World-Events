@@ -22,6 +22,7 @@
 | `READY` | Can start immediately after Phase 0 |
 | `BLOCKED` | Depends on a shared helper or design decision |
 | `IN PROGRESS` | Being implemented |
+| `SHIPPED` | Implemented, built, and documented; in-game DCS test still pending |
 | `DONE` | Implemented, tested, documented |
 
 ### Backlog overview
@@ -366,15 +367,16 @@ remaining.`
 
 ### 4.2 `IADS` — SAM Network Takedown
 
-**Status:** `READY` after Phase 0  
+**Status:** `SHIPPED` - code complete, build clean, and documented; DCS in-game test pending  
 **Module:** `includes/event_iads.lua`  
 **Spawn function:** `WE.EVENT.IADS()`  
 **Handler:** `WE.EVENT.IADSEVENT`  
 **Complexity:** Medium
 
-**Pitch:** Red has dispersed a small integrated air-defense network around a
-strategic sector. Blue must destroy the command node and SAM sites before the
-window closes and red retaliates.
+**Pitch:** Red has dispersed a small integrated air-defence network around a
+strategic sector. Blue must destroy the command node, SAM sites, and
+early-warning radar before the window closes. If it fails, the surviving
+network stays active and the airspace remains contested.
 
 **Why it works in multiplayer:** Dedicated SEAD/DEAD flights, a CAP screen, and
 recon/JTAC work together. The event rewards target prioritization and threat
@@ -382,35 +384,55 @@ avoidance rather than a single bombing run.
 
 **Dynamic placement**
 
-- Pick a red/neutral airdrome or strategic point.
-- Place 2–4 SAM sites at 6–18 km offsets, 1 EWR, and 1 command post/bunker.
+- Pick a random red airdrome, falling back to a neutral airdrome only when the
+  map has no red airdrome. Never use a Blue airdrome. The airdrome name is the
+  player-facing **area**.
+- Place 3 SAM sites at 6–18 km offsets, 1 EWR, and 1 command bunker near the
+  anchor.
 - Reject water, pavement, and steep terrain with `WE.isPointOnLand`,
-  `WE.minDistanceToRunway`, and `WE.isPointFlat`.
-- Mark only a general “SIGINT area” on F10 by default; optional exact marks for
-  easier servers.
+  `WE.minDistanceToRunway`, and `WE.isPointFlat`; keep network points at least
+  5000 m from every Blue airdrome and 3000 m apart.
+- Mark only a general "SIGINT area" on F10. Exact per-site marks are not
+  implemented; `WE.IADSMarkMode` currently falls back to the area mark.
 
 **Spawn plan**
 
-- SAM types: `SA-6 Kub`, `SA-11 Buk`, `SA-15 Tor`, `SA-13 Gopher` (verify exact
-  DCS type names).
-- EWR type: `EWR 55G6` or equivalent.
-- Command node: destructible ground unit (`Bunker` / `Command Post`) so
-  `S_EVENT_DEAD` fires.
-- Optional AAA/Shilka for low-level pressure.
+- SAM sites are chosen at random from `WE.IADSSAMTypes` with repeats allowed.
+  Each site is one functional group:
+  - Kub: one `Kub 1S91 str` plus two `Kub 2P25 ln`.
+  - Buk: one `SA-11 Buk CC 9S470M1`, one `SA-11 Buk SR 9S18M1`, and one
+    `SA-11 Buk LN 9A310M1`.
+  - Tor: one `Tor 9A331`.
+- EWR type: one independent `55G6 EWR` placed in the same band.
+- Command node: destructible `Bunker` ground unit so `S_EVENT_DEAD` fires.
+- No optional AAA/Shilka is placed.
+- Every network unit spawns at `WE.IADSSkill` (default `High`), using the shared
+  ground-unit helper's optional skill argument.
+
+> **Unit type correction.** The earlier strings `SA-6 Kub`, `SA-11 Buk`,
+> `SA-15 Tor`, `EWR 55G6`, and `Command Post` were wrong. `Command Post` is not
+> a ground-unit type at all. The verified strings above are the ones the module
+> spawns.
 
 **State schema**
 
 ```lua
 WE.currentIADSEvent = {
-    area = "airbase or sector name",
+    area = "airbase name",
     point = { x = 0, y = 0, z = 0 },
-    sites = { { type = "SA-6 Kub", groupId = 0, unitName = "IADS_SAM_1" }, ... },
-    unitNames = { ["IADS_SAM_1"] = true, ... },
+    airbase = Airbase,
+    sites = {
+        { type = "Kub", group = Group, unitNames = { "IADS_Site_1_1_1", ... }, point = { ... } },
+        ...
+    },
+    unitNames = { ["IADS_Site_1_1_1"] = true, ... }, -- every tracked unit
     groups = { ... },
+    spawnId = 1,
     spawnedAt = 0,
     endsAt = 0,
     markId = 0,
-    retaliationSpawned = false,
+    lastAnnouncedMinutes = nil,
+    ended = false,
 }
 ```
 
@@ -420,43 +442,49 @@ WE.currentIADSEvent = {
   - Only `S_EVENT_DEAD`.
   - Check tracked unit names.
   - When all tracked units are dead → success.
-- `WE.iadsTick` every 10 s:
+- `WE.iadsTick` every `WE.IADSTickIntervalSeconds` (10 s):
   - Announce remaining whole minutes when they change.
-  - On timeout, spawn retaliation once and fail.
-  - Return `now + 10` while active, `nil` when finished.
+  - On timeout, fail once with no retaliation and stop.
+  - Return `now + WE.IADSTickIntervalSeconds` while active, `nil` when finished.
 
-**Win condition:** all SAM/EWR/command units destroyed.
+**Win condition:** all SAM/EWR/command units destroyed. The command node is
+required but not sufficient: there is no decapitation shortcut.
 
 **Failure condition and consequence**
 
 - Failure when the timer expires.
-- On failure: spawn a red retaliation strike package (e.g. 2× `Su-24M`) against
-  a blue airbase, or announce that the airspace is closed and leave surviving
-  SAMs active. Keep the consequence configurable.
+- On failure: announce that surviving IADS units remain active, remove the F10
+  mark, stop the tick, clear `WE.currentIADSEvent`, and release `WE.is_active`.
+  Every surviving network unit stays alive. **Retaliation is deferred**: no
+  strike package is spawned.
 
 **Config**
 
 | Key | Default | Notes |
 |---|---|---|
 | `WE.IADSCountry` | `country.id.RUSSIA` | Spawn country |
-| `WE.IADSSiteCount` | `3` | 2–4 recommended |
-| `WE.IADSSAMTypes` | `{ "SA-6 Kub", "SA-11 Buk", "SA-15 Tor" }` | Verify DCS names |
-| `WE.IADSEWRType` | `"EWR 55G6"` | Verify DCS name |
-| `WE.IADSCommandType` | `"Command Post"` | Must be a ground unit |
-| `WE.IADSAAAType` | `"ZSU-23-4 Shilka"` | Optional |
+| `WE.IADSSiteCount` | `3` | SAM sites per network |
+| `WE.IADSSAMTypes` | Kub / Buk / Tor tables | Verified unit types; repeats allowed |
+| `WE.IADSSkill` | `"High"` | Skill applied to every network unit |
+| `WE.IADSCommandType` | `"Bunker"` | Destructible ground unit |
+| `WE.IADSRadarType` | `"55G6 EWR"` | Independent early-warning radar |
 | `WE.IADSPlacementMin` | `6000` | Meters from anchor |
 | `WE.IADSPlacementMax` | `18000` | Meters from anchor |
 | `WE.IADSRunwayMinDistance` | `3000` | Keep sites off runways |
-| `WE.IADSMaxSlope` | `5` | Flatness tolerance |
-| `WE.IADSDurationSeconds` | `1800` | Window length |
-| `WE.IADSRetaliationEnabled` | `true` | Spawn strike on timeout |
-| `WE.IADSRetaliationTypes` | `{ "Su-24M" }` | Verify DCS names |
-| `WE.IADSRetaliationCount` | `2` | |
-| `WE.IADSMarkMode` | `"area"` | `"area"` or `"exact"` |
+| `WE.IADSSiteMinDistance` | `3000` | Spacing between network points |
+| `WE.IADSBlueBaseMinDistance` | `5000` | Keep sites away from Blue bases |
+| `WE.IADSMaxSlope` | `5` | Flatness tolerance (meters) |
+| `WE.IADSPlacementAttempts` | `8` | Candidate tries per site/radar |
+| `WE.IADSDurationSeconds` | `900` | Window length (15 minutes) |
+| `WE.IADSTickIntervalSeconds` | `10` | Countdown tick |
+| `WE.IADSMarkMode` | `"area"` | Only `"area"` is supported |
+| `WE.IADSSound` | `"attn_iads.ogg"` | Placeholder alert |
+| `WE.IADSEnabled` | `true` | Secondary on/off switch |
 
 **Status line:** `IADS: <n> site(s) active near <area>, <seconds> remaining.`
+The count is live SAM sites only, not radar or command-node units.
 
-**Sound:** `attn_iads.ogg`.
+**Sound:** `attn_iads.ogg` (placeholder copy of `attn_attack.ogg`).
 
 **Performance notes**
 
@@ -470,24 +498,28 @@ WE.currentIADSEvent = {
   not on radar state.
 - Some SAM types may not be available on all maps/mods; fall back to a default
   type or cancel cleanly.
-- Ensure the command post is a ground unit, not a static object.
+- The command node must be a ground `Bunker` unit, not a static object; the
+  earlier `Command Post` string is not a valid ground-unit type.
 
 **Implementation checklist**
 
-- [ ] Add module + delimiters + registry entry.
-- [ ] Add config keys.
-- [ ] Implement site placement with land/flat/runway checks.
-- [ ] Implement spawn, state, handler, deadline tick.
-- [ ] Add status line.
-- [ ] Add sound asset.
-- [ ] Build + DCS test (success, timeout, no suitable location).
-- [ ] Update docs/changelog.
+- [x] Add module + delimiters + registry entry.
+- [x] Add config keys.
+- [x] Implement site placement with land/flat/runway/Blue-base/spacing checks.
+- [x] Implement spawn, state, handler, deadline tick.
+- [x] Add status line.
+- [x] Add sound asset (`attn_iads.ogg`, placeholder copy of `attn_attack.ogg`).
+- [x] Build clean (LuaLS Error check passed).
+- [ ] DCS test (success, timeout, partial network, no suitable location).
+- [x] Update docs/changelog.
 
 **Acceptance criteria**
 
-- Sites spawn on land, away from runways, at valid offsets.
+- Sites spawn on land, away from runways, Blue bases, each other, and at valid
+  offsets; a partial network spawns when only some sites can be placed.
 - Destroying every tracked unit produces success and clears state.
-- Timeout produces the configured retaliation/failure exactly once.
+- Timeout produces failure exactly once, leaves survivors alive, and spawns no
+  retaliation.
 - No duplicate names across repeated runs.
 - The deadline tick stops after the event ends.
 
@@ -930,9 +962,11 @@ remaining.`
 - Adds moving-target and arrival detection.
 - Lowest risk of the five; good first event.
 
-### Phase 2 — `IADS`
+### Phase 2 - `IADS` - SHIPPED (DCS test pending)
 
-- Adds multi-site placement, flat/runway checks, and timeout retaliation.
+- Adds multi-site placement, flat/runway/Blue-base/spacing checks, and partial
+  networks when a site cannot place.
+- Timeout leaves surviving units active with no retaliation (deferred).
 - Reuses the same all-dead check and mark allocator.
 
 ### Phase 3 — `CSAR`

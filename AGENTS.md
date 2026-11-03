@@ -42,7 +42,7 @@ Registry order (`includes/_compiler_registry.txt`):
 ```
 _header.lua, types.lua, config.lua, state.lua, utility.lua, radio.lua,
 event.lua, event_vipwing.lua, event_baseattack.lua, event_stronghold.lua,
-event_convoy.lua, init.lua
+event_convoy.lua, event_iads.lua, init.lua
 ```
 
 Order matters: `_header.lua` defines `WE` first; `init.lua` must stay last because it calls
@@ -90,9 +90,9 @@ WE.events = {}
 
 Per-event state: `WE.currentVIPEvent`, `WE.currentBaseAttackEvent`,
 `WE.activeConvoyEvents` (+ `WE.currentConvoyEvent` alias, `WE.convoySpawnCounter`),
-`WE.activeStrongholdEvents` (+ `WE.strongholdSpawnCounter`). Lists hold one entry per active
-mission; `WE.is_active` stays `1` while any tracked mission remains and clears when the list
-is empty.
+`WE.activeStrongholdEvents` (+ `WE.strongholdSpawnCounter`), and `WE.currentIADSEvent`
+(+ `WE.iadsSpawnCounter`). Lists hold one entry per active mission; `WE.is_active` stays `1`
+while any tracked mission remains and clears when the list is empty. IADS is single-instance.
 
 ### Radio menu
 
@@ -115,6 +115,7 @@ is empty.
 | `BASE_ATTACK` | `event_baseattack.lua` | `WE.EVENT.BASEATTACK` | `WE.currentBaseAttackEvent` | `attn_attack.ogg` |
 | `CONVOY` | `event_convoy.lua` | `WE.EVENT.CONVOYEVENT` | `WE.activeConvoyEvents` | `attn_convoy.ogg` |
 | `STRONGHOLD` | `event_stronghold.lua` | `WE.EVENT.STRONGHOLDEVENT` | `WE.activeStrongholdEvents` | `attn_stronghold.ogg` |
+| `IADS` | `event_iads.lua` | `WE.EVENT.IADSEVENT` | `WE.currentIADSEvent` | `attn_iads.ogg` |
 
 - **VIP Escort:** two distinct red airdromes with a runway ≥ `VIPMinRunwayLengthMeters`
   (1000 m); C-130J-30 `RSD381 VIP` plus 4 MiG-29 escort after
@@ -130,6 +131,16 @@ is empty.
   up to `StrongholdMaxConcurrent` (5). Building is a destructible ground **unit** so
   `S_EVENT_DEAD` fires. Destroy all tracked units = success. On timeout, a still-neutral
   airfield is captured for red unless the bunker was already destroyed.
+- **IADS:** random red airdrome (neutral fallback, never blue); single instance. Three SAM
+  sites (Kub `Kub 1S91 str` + 2x `Kub 2P25 ln`, Buk `SA-11 Buk CC 9S470M1` +
+  `SA-11 Buk SR 9S18M1` + `SA-11 Buk LN 9A310M1`, or Tor `Tor 9A331`), one `55G6 EWR`, and
+  one `Bunker` command node. Kill every tracked unit within `IADSDurationSeconds` (900 s) for
+  success; timeout fails once, leaves survivors alive, and spawns **no** retaliation. Only an
+  area SIGINT mark is placed. Config: `IADSCountry`, `IADSSiteCount`, `IADSSAMTypes`,
+  `IADSSkill`, `IADSCommandType`, `IADSRadarType`, `IADSPlacementMin`/`Max`,
+  `IADSRunwayMinDistance`, `IADSSiteMinDistance`, `IADSBlueBaseMinDistance`, `IADSMaxSlope`,
+  `IADSPlacementAttempts`, `IADSDurationSeconds`, `IADSTickIntervalSeconds`, `IADSMarkMode`,
+  `IADSSound`, `IADSEnabled`.
 
 See `README.md` for full event behavior and `EVENT_DESIGN.md` for the shared helper contract.
 
@@ -181,8 +192,9 @@ See `README.md` for full event behavior and `EVENT_DESIGN.md` for the shared hel
 ## Docs and conventions
 
 - Update `README.md`, `SITUATION_BRIEFING.md`, `changelog.md`, and `EVENT_DESIGN.md` whenever
-  behavior or config changes. `EVENT_DESIGN.md` currently marks `CONVOY` code-complete (DCS
-  test pending) and holds designs for `IADS`, `CSAR`, `BASE_DEFENSE`, `FARP_CAPTURE`.
+  behavior or config changes. `EVENT_DESIGN.md` currently marks `CONVOY` and `IADS`
+  code-complete/shipped (DCS test pending) and holds designs for `CSAR`, `BASE_DEFENSE`,
+  `FARP_CAPTURE`.
 - Keep `_header.lua` first and `init.lua` last in the registry; preserve delimiter format.
 - Style: `WE.camelCase` public functions; event locals use `snake_case` with a leading `_`.
 - Existing code uses LuaCATS `---@` annotations. Add comments only for non-obvious behavior.

@@ -8,7 +8,7 @@ Version: 0.1.0
 
 ## 1. SITUATION
 
-Red forces are conducting four distinct types of operation across the theatre. Each is triggered on-demand and operates independently on any map. You will not know which event is active until it triggers — be prepared for anything.
+Red forces are conducting five distinct types of operation across the theatre. Each is triggered on-demand and operates independently on any map. You will not know which event is active until it triggers — be prepared for anything.
 
 One event at a time. When it's done, another can follow.
 
@@ -108,11 +108,44 @@ Fail: The convoy reaches the destination or the 30-minute timer expires — a re
 
 ---
 
+### 2.5 Integrated Air-Defence Network (IADS)
+
+What to expect: A dispersed air-defence network anchored on a red airfield — three SAM sites, one early-warning radar, and a bunker command node.
+
+Location: The network is placed 6–18 km from a red airfield (neutral only if the map has no red airfield). You are told the area name and given a single F10 SIGINT mark for the suspected activity near it. Exact site locations are not marked — finding them is part of the mission.
+
+Composition: Three SAM sites, each a complete group:
+- **Kub** — one search/track radar and two launchers.
+- **Buk** — one command vehicle, one search radar and one launcher.
+- **Tor** — one self-contained short-range SAM.
+
+One long-range early-warning radar supports the network, and a bunker acts as the command node. All crews are high skill.
+
+Timer: 15 minutes from spawn. The remaining whole minutes are announced as the clock runs down.
+
+How to attack:
+- Use the SIGINT mark as a search box, not a target. Spread out, find each site, and mark them for the strike package.
+- Prioritise the early-warning radar and the command bunker to blind and unhinge the network.
+- Treat the SAM sites as mutually supporting. Plan ingress and egress routes to avoid the engagement envelopes rather than flying straight at them.
+- SEAD suppresses, DEAD finishes; CAP keeps red air away while the strike package works.
+
+Win condition: Every network unit — all three SAM sites, the early-warning radar, and the command bunker — destroyed before the timer hits zero.
+
+Failure consequences:
+- If time runs out, the mission fails and the F10 SIGINT mark is removed.
+- There is **no retaliatory strike**. Every surviving SAM, radar and command unit remains active and dangerous, so the airspace stays contested until Blue finishes the job.
+
+Kill: Every SAM site unit, the early-warning radar, and the command bunker destroyed within 15 minutes.
+Fail: Timer expires — surviving network units remain active and the airspace stays contested.
+
+---
+
 ## 3. RULES OF ENGAGEMENT
 
 - All red aircraft and ground units are weapons free.
 - Escorts will engage you if you threaten the formation — plan accordingly.
 - Stronghold SAMs (Strela-10M3) are active and will engage inbound aircraft. Approach low or from outside their range.
+- IADS Kub, Buk and Tor batteries are active and mutually supporting. Assume the network sees you before you see every launcher; plan around the early-warning radar and the sites' engagement envelopes.
 - VIP and Base Attack MiG escorts use radar continuously and will visually acquire targets. Do not assume they haven't seen you.
 
 ---
@@ -125,7 +158,7 @@ Fail: The convoy reaches the destination or the 30-minute timer expires — a re
 | Status | F10 Radio Menu > WorldEvents > Event Status |
 | Notifications | Text message to all players on spawn (airfield names, countdown) |
 | Audio | Alert sound played on event trigger |
-| Map Marks | Stronghold locations and Convoy destinations marked on F10 map, removed on completion |
+| Map Marks | Stronghold locations and Convoy destinations marked on F10 map; IADS shows only a general SIGINT area. All marks are removed on completion |
 
 ---
 
