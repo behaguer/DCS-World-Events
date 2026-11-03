@@ -9,4 +9,5 @@ event_vipwing.lua
 event_baseattack.lua
 event_stronghold.lua
 event_convoy.lua
+event_iads.lua
 init.lua
