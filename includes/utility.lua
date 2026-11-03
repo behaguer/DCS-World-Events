@@ -504,8 +504,9 @@ end
 --- @param _x number east coordinate
 --- @param _z number north coordinate
 --- @param _heading number heading in degrees
+--- @param _skill string|nil DCS skill level (default "Excellent")
 --- @return table unit definition
-function WE.buildGroundUnit(_unitName, _unitType, _x, _z, _heading)
+function WE.buildGroundUnit(_unitName, _unitType, _x, _z, _heading, _skill)
     return {
         ["type"] = _unitType,
         ["unitId"] = WE.getNextUnitId(),
@@ -513,7 +514,7 @@ function WE.buildGroundUnit(_unitName, _unitType, _x, _z, _heading)
         ["x"] = _x,
         ["y"] = _z,
         ["heading"] = _heading,
-        ["skill"] = "Excellent",
+        ["skill"] = _skill or "Excellent",
     }
 end
 
