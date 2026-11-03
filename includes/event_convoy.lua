@@ -73,7 +73,8 @@ WE.currentConvoyEvent = nil
 WE.convoySpawnCounter = 0
 
 --- Collect the airdromes a convoy can start from and drive to. The origin must
---- be red; the destination may be red or neutral, but never blue.
+--- be red; the destination prefers neutral or blue airbases, with red used only
+--- as a last resort when the map does not expose any friendly targets.
 --- @return table red origin candidates
 --- @return table destination candidates
 function WE.getConvoyAirdromes()
@@ -91,8 +92,13 @@ function WE.getConvoyAirdromes()
         end
     end
 
-    _add(_originCandidates)
+    _add(WE.getAirdromes('blue'))
     _add(WE.getAirdromes('neutral'))
+
+    if #_destinationCandidates == 0 then
+        _seen = {}
+        _add(WE.getAirdromes('red'))
+    end
 
     return _originCandidates, _destinationCandidates
 end
@@ -107,28 +113,46 @@ function WE.getConvoyAirbasePoint(_airbase, _min, _max)
     if not _airbase then return nil end
     local _basePoint = _airbase:getPoint()
     if not _basePoint then return nil end
-    local _point = WE.randomLandPoint(_basePoint.x, _basePoint.z, _min, _max, 30)
-    if not _point then
-        return nil
+
+    local _searchDistances = { _min, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000, 12000 }
+    if _min < 300 then
+        table.insert(_searchDistances, 300)
     end
-    _point.y = land.getHeight({ x = _point.x, y = _point.z })
-    return _point
+    for _, _distance in ipairs(_searchDistances) do
+        if _distance >= _min and _distance <= _max then
+            for _sector = 0, 15 do
+                local _bearing = (_sector / 16) * math.pi * 2
+                local _point = {
+                    x = _basePoint.x + math.cos(_bearing) * _distance,
+                    y = 0,
+                    z = _basePoint.z + math.sin(_bearing) * _distance,
+                }
+                if WE.isPointOnLand(_point) then
+                    _point.y = land.getHeight({ x = _point.x, y = _point.z })
+                    return _point
+                end
+            end
+        end
+    end
+
+    WE.logWarning("getConvoyAirbasePoint: no usable land point found near %s within %.0f m",
+        tostring(_airbase:getName()), _max)
+    return nil
 end
 
---- Check whether a route waypoint is usable. Unlike a spawn point, a route
---- waypoint may sit on a road, so only water and paved airfield surfaces are
---- rejected.
+--- Check whether a route waypoint is usable for a ground convoy. Unlike a spawn
+--- point, these route samples are evaluating the corridor between bases, so roads
+--- and airfield pavement are valid traversable surfaces as long as the sample is
+--- not in water. This keeps valid convoy paths from being rejected only because
+--- they cross a runway, taxiway, or road segment on the way between airbases.
 --- @param _point table point {x, y, z}
---- @return boolean true when the point is usable on land
+--- @return boolean true when the point is valid for a convoy path
 function WE.isConvoyRoutePoint(_point)
     local _surfaceType = land.getSurfaceType({ x = _point.x, y = _point.z })
     if not _surfaceType then
         return false
     end
     if _surfaceType == land.SurfaceType.WATER or _surfaceType == land.SurfaceType.SHALLOW_WATER then
-        return false
-    end
-    if land.SurfaceType.RUNWAY and _surfaceType == land.SurfaceType.RUNWAY then
         return false
     end
     return true
@@ -141,6 +165,51 @@ end
 --- @param _start table start point {x, y, z}
 --- @param _finish table finish point {x, y, z}
 --- @return table|nil list of route points, or nil when no usable route exists
+function WE.findNearestConvoyRouteSample(_fromPoint, _toPoint, _sample, _maxOffset)
+    if not _fromPoint or not _toPoint or not _sample then
+        return nil, nil
+    end
+
+    local _dx = _toPoint.x - _fromPoint.x
+    local _dz = _toPoint.z - _fromPoint.z
+    local _distance = math.sqrt(_dx * _dx + _dz * _dz)
+    if _distance == 0 then
+        return nil, nil
+    end
+
+    local _normalX = -_dz / _distance
+    local _normalZ = _dx / _distance
+    local _searchOffsets = { 0, 25, 50, 100, 150, 250, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000, 12000 }
+    local _best = nil
+    local _bestScore = math.huge
+    local _bestSurface = nil
+
+    for _, _side in ipairs({ 1, -1 }) do
+        for _, _offset in ipairs(_searchOffsets) do
+            if (not _maxOffset) or (_offset <= _maxOffset) then
+                local _candidate = {
+                    x = _sample.x + _normalX * _side * _offset,
+                    y = 0,
+                    z = _sample.z + _normalZ * _side * _offset,
+                }
+                if WE.isConvoyRoutePoint(_candidate) then
+                    local _surfaceType = land.getSurfaceType({ x = _candidate.x, y = _candidate.z })
+                    local _roadBias = (_surfaceType == land.SurfaceType.ROAD) and 0 or
+                        ((_surfaceType == land.SurfaceType.RUNWAY) and 150 or 350)
+                    local _score = _offset + _roadBias
+                    if _score < _bestScore then
+                        _best = _candidate
+                        _bestScore = _score
+                        _bestSurface = _surfaceType
+                    end
+                end
+            end
+        end
+    end
+
+    return _best, _bestSurface
+end
+
 function WE.isConvoyRouteSegmentPassable(_fromPoint, _toPoint, _stepMeters)
     if not _fromPoint or not _toPoint then
         return false
@@ -160,7 +229,14 @@ function WE.isConvoyRouteSegmentPassable(_fromPoint, _toPoint, _stepMeters)
             z = _fromPoint.z + (_dz * _t),
         }
         if not WE.isConvoyRoutePoint(_sample) then
-            return false
+            local _detour, _surface = WE.findNearestConvoyRouteSample(_fromPoint, _toPoint, _sample, 6000)
+            if not _detour then
+                WE.logInfo("buildConvoyRoute: route segment fails through water/non-land sample at %.0f m along %.0f m segment",
+                    (_distance * _t), _distance)
+                return false
+            end
+            WE.logInfo("buildConvoyRoute: detoured around water for road/bridge sample on segment surface=%s",
+                tostring(_surface))
         end
     end
 
@@ -198,33 +274,60 @@ function WE.buildConvoyRoute(_start, _finish)
     end
 
     local _pointCount = math.max(3, math.min(5, WE.ConvoyRoutePointCount))
-    local _points = { _start }
     local _sideX = -_dz / _distance
     local _sideZ = _dx / _distance
+    local _searchOffsets = { 0, 25, 50, 100, 150, 250, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000, 12000 }
 
-    for _i = 1, _pointCount - 2 do
-        local _t = _i / (_pointCount - 1)
-        local _x = _start.x + _dx * _t
-        local _z = _start.z + _dz * _t
-        local _point = { x = _x, y = 0, z = _z }
+    local function _bestValidPoint(_baseX, _baseZ)
+        local _best = nil
+        local _bestScore = math.huge
+        local _bestSurface = nil
 
-        if not WE.isConvoyRoutePoint(_point) then
-            local _found = nil
-            for _, _offset in ipairs({ 1000, -1000, 2000, -2000, 3000, -3000 }) do
+        for _, _side in ipairs({ 1, -1 }) do
+            for _, _offset in ipairs(_searchOffsets) do
                 local _candidate = {
-                    x = _x + _sideX * _offset,
+                    x = _baseX + _sideX * _side * _offset,
                     y = 0,
-                    z = _z + _sideZ * _offset,
+                    z = _baseZ + _sideZ * _side * _offset,
                 }
                 if WE.isConvoyRoutePoint(_candidate) then
-                    _found = _candidate
-                    break
+                    local _surfaceType = land.getSurfaceType({ x = _candidate.x, y = _candidate.z })
+                    local _roadPenalty = (_surfaceType == land.SurfaceType.ROAD) and 0 or 500
+                    local _score = _offset + _roadPenalty
+                    if _score < _bestScore then
+                        _best = _candidate
+                        _bestScore = _score
+                        _bestSurface = _surfaceType
+                    end
                 end
             end
-            if not _found then
-                return nil
+        end
+
+        return _best, _bestSurface
+    end
+
+    local _points = { _start }
+    for _i = 1, _pointCount - 2 do
+        local _t = _i / (_pointCount - 1)
+        local _baseX = _start.x + _dx * _t
+        local _baseZ = _start.z + _dz * _t
+        local _point = { x = _baseX, y = 0, z = _baseZ }
+
+        if not WE.isConvoyRoutePoint(_point) then
+            local _candidate, _surface = _bestValidPoint(_baseX, _baseZ)
+            if not _candidate then
+                local _fallback, _fallbackSurface = WE.findNearestConvoyRouteSample(_start, _finish, _point, 12000)
+                if not _fallback then
+                    WE.logInfo("buildConvoyRoute: no valid land point near direct line at t=%.2f for %.0f m segment",
+                        _t, _distance)
+                    return nil
+                end
+                _candidate = _fallback
+                _surface = _fallbackSurface
             end
-            _point = _found
+            _point = _candidate
+            WE.logInfo("buildConvoyRoute: using off-line sample near river/bridge at t=%.2f surface=%s",
+                _t, tostring(_surface))
         end
 
         _point.y = land.getHeight({ x = _point.x, y = _point.z })
@@ -233,8 +336,13 @@ function WE.buildConvoyRoute(_start, _finish)
 
     table.insert(_points, _finish)
     if not WE.isConvoyRoutePassable(_points) then
+        WE.logInfo("buildConvoyRoute: passability failed after bridge/road sampling for %.0f m route",
+            _distance)
         return nil
     end
+
+    WE.logInfo("buildConvoyRoute: accepted route for %.0f m segment using road/bridge-aware sampling",
+        _distance)
     return _points
 end
 
@@ -284,20 +392,38 @@ function WE.pickConvoyRoute()
         return nil, nil, nil
     end
 
-    for _i = #_candidatePairs, 2, -1 do
-        local _j = math.random(1, _i)
-        _candidatePairs[_i], _candidatePairs[_j] = _candidatePairs[_j], _candidatePairs[_i]
-    end
+    table.sort(_candidatePairs, function(a, b)
+        local _aPoint = a.origin:getPoint()
+        local _bPoint = b.origin:getPoint()
+        local _aDest = a.destination:getPoint()
+        local _bDest = b.destination:getPoint()
+
+        local _aDist = _aPoint and _aDest and WE.getDistance(_aPoint, _aDest) or math.huge
+        local _bDist = _bPoint and _bDest and WE.getDistance(_bPoint, _bDest) or math.huge
+        return _aDist < _bDist
+    end)
 
     for _, _pair in ipairs(_candidatePairs) do
+        local _originName = _pair.origin and _pair.origin:getName() or "<unknown origin>"
+        local _destinationName = _pair.destination and _pair.destination:getName() or "<unknown destination>"
+        WE.logInfo("pickConvoyRoute: testing %s -> %s", _originName, _destinationName)
+
         for _attempt = 1, 6 do
             local _start = WE.getConvoyAirbasePoint(_pair.origin, 300, 1500)
             local _finish = WE.getConvoyAirbasePoint(_pair.destination, 500, 2000)
             if _start and _finish and WE.isConvoyRoutePoint(_start) and WE.isConvoyRoutePoint(_finish) then
                 local _route = WE.buildConvoyRoute(_start, _finish)
                 if _route then
+                    WE.logInfo("pickConvoyRoute: accepted %s -> %s with %d route points",
+                        _originName, _destinationName, #_route)
                     return _route, _pair.origin, _pair.destination
+                else
+                    WE.logInfo("pickConvoyRoute: rejected %s -> %s on attempt %d (route build failed)",
+                        _originName, _destinationName, _attempt)
                 end
+            else
+                WE.logInfo("pickConvoyRoute: rejected %s -> %s on attempt %d (bad start/finish point)",
+                    _originName, _destinationName, _attempt)
             end
         end
     end
@@ -443,19 +569,26 @@ function WE.spawnConvoyGroup(_route, _spawnId)
     return _group, _unitNames, _unitOrder
 end
 
---- Spawn a small red garrison at the convoy's destination after it delivers.
+--- Spawn a red airfield defense group at the convoy's destination once the
+--- convoy has reached its target area. The defense is intentionally delayed so
+--- the neutral/blue airfield is not captured before the convoy arrives.
 --- @param _point table destination point {x, y, z}
 --- @param _spawnId number unique per-spawn id
 function WE.spawnConvoyDefense(_point, _spawnId)
     local _defenses = {
         { ["type"] = "BTR-80", ["name"] = "APC" },
         { ["type"] = "BTR-80", ["name"] = "APC" },
+        { ["type"] = "BMP-2", ["name"] = "IFV" },
+        { ["type"] = "BMP-2", ["name"] = "IFV" },
         { ["type"] = "ZSU-23-4 Shilka", ["name"] = "AAA" },
+        { ["type"] = "ZSU-23-4 Shilka", ["name"] = "AAA" },
+        { ["type"] = "Strela-10M3", ["name"] = "SAM" },
+        { ["type"] = "Strela-10M3", ["name"] = "SAM" },
     }
     local _units = {}
 
     for _i, _def in ipairs(_defenses) do
-        local _x, _z = WE.randomLandOffsetNear(_point.x, _point.z, 150)
+        local _x, _z = WE.randomLandOffsetNear(_point.x, _point.z, 180)
         local _unitName = string.format("Convoy_Def_%d_%s_%d", _spawnId, _def.name, _i)
         _units[_i] = WE.buildGroundUnit(_unitName, _def.type, _x, _z, math.random(0, 360))
     end
@@ -633,6 +766,12 @@ function WE.endConvoyEvent(_eventData, _result)
 
     if _eventData.routeTextId then
         pcall(function() trigger.action.removeMark(_eventData.routeTextId) end)
+    end
+
+    local _group = _eventData.groupName and Group.getByName(_eventData.groupName)
+    if _group and _group:isExist() then
+        _group:destroy()
+        WE.logInfo("Convoy group %s removed after %s", _eventData.groupName, tostring(_result))
     end
 
     if _result == "SUCCESS" then
