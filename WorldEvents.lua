@@ -5282,28 +5282,44 @@ world.addEventHandler(WE.EVENT.CONVOYEVENT)
 -----------------[[ event_iads.lua ]]-----------------
 ---
 --- IADS event spawning module
---- Spawns a small integrated air-defence network (SAM site(s) plus a bunker
---- command node) anchored on a red airdrome. Players must destroy every
---- tracked unit before the countdown expires.
+--- Spawns an integrated air-defence network (SAM sites, an early-warning
+--- radar, and a bunker command node) anchored on a red airdrome. Players must
+--- destroy every tracked unit before the countdown expires.
 ---
 
 --- Country used to spawn the IADS units. Change this if your red side isn't
 --- Russia on the map/mod you're using.
 WE.IADSCountry = country.id.RUSSIA
 
---- Number of SAM sites to place around the anchor. This ticket ships a single
---- Tor site; later work expands the composition.
-WE.IADSSiteCount = 1
+--- Number of SAM sites to place around the anchor.
+WE.IADSSiteCount = 3
 
---- SAM unit types the event may place. This ticket only uses the first entry
---- (Tor); later work selects from the full Kub/Buk/Tor list.
-WE.IADSSAMTypes = { "Tor 9A331" }
+--- SAM site compositions the event may place, chosen at random with repeats
+--- allowed. Each entry is one functional group: `units` lists the DCS unit
+--- types that must spawn together inside that group.
+WE.IADSSAMTypes = {
+    {
+        name = "Kub",
+        units = { "Kub 1S91 str", "Kub 2P25 ln", "Kub 2P25 ln" },
+    },
+    {
+        name = "Buk",
+        units = { "SA-11 Buk CC 9S470M1", "SA-11 Buk SR 9S18M1", "SA-11 Buk LN 9A310M1" },
+    },
+    {
+        name = "Tor",
+        units = { "Tor 9A331" },
+    },
+}
 
 --- Skill level applied to every network unit.
 WE.IADSSkill = "High"
 
 --- Destructible ground unit used as the network command node.
 WE.IADSCommandType = "Bunker"
+
+--- Independent early-warning radar placed in the network band.
+WE.IADSRadarType = "55G6 EWR"
 
 --- Candidate sites sit between these distances (meters) from the anchor.
 WE.IADSPlacementMin = 6000
@@ -5312,8 +5328,17 @@ WE.IADSPlacementMax = 18000
 --- Sites must be at least this far (meters) from any runway of the anchor.
 WE.IADSRunwayMinDistance = 3000
 
+--- Sites and the radar must be at least this far (meters) apart.
+WE.IADSSiteMinDistance = 3000
+
+--- Network points must be at least this far (meters) from any Blue airdrome.
+WE.IADSBlueBaseMinDistance = 5000
+
 --- Maximum allowed height difference (meters) across a site footprint.
 WE.IADSMaxSlope = 5
+
+--- Placement attempts made for each site and for the radar.
+WE.IADSPlacementAttempts = 8
 
 --- How long (seconds) the network mission lasts once spawned.
 WE.IADSDurationSeconds = 900
@@ -5337,40 +5362,78 @@ WE.currentIADSEvent = nil
 --- Counter used to make each spawn's group/unit names unique.
 WE.iadsSpawnCounter = 0
 
---- Pick a red airdrome to anchor the network on. This ticket only considers
---- red airdromes; the neutral fallback arrives with the full network work.
+--- Pick an airdrome to anchor the network on. Red airdromes are preferred;
+--- neutral airdromes are used only when the map has no red airdrome. Blue
+--- airdromes are never used.
 --- @return Airbase|nil anchor airdrome
 function WE.pickIADSAnchor()
     local _redAirdromes = WE.getAirdromes('red')
-    if #_redAirdromes < 1 then
-        WE.logWarning("pickIADSAnchor: no red airdromes available")
-        return nil
+    if #_redAirdromes > 0 then
+        return _redAirdromes[math.random(1, #_redAirdromes)]
     end
-    return _redAirdromes[math.random(1, #_redAirdromes)]
+
+    local _neutralAirdromes = WE.getAirdromes('neutral')
+    if #_neutralAirdromes > 0 then
+        WE.logWarning("pickIADSAnchor: no red airdromes available, falling back to neutral")
+        return _neutralAirdromes[math.random(1, #_neutralAirdromes)]
+    end
+
+    WE.logWarning("pickIADSAnchor: no red or neutral airdromes available")
+    return nil
 end
 
---- Pick a legal site point in the placement band around the anchor: on land,
---- flat within WE.IADSMaxSlope, and at least WE.IADSRunwayMinDistance from the
---- anchor's runways.
+--- Check a candidate network point against the Blue airdrome spacing rule.
+--- @param _point table candidate point {x, y, z}
+--- @param _blueAirdromes table list of Blue airdrome objects
+--- @return boolean true when the point is far enough from every Blue airdrome
+function WE.isIADSPointClearOfBlueBases(_point, _blueAirdromes)
+    for _, _base in ipairs(_blueAirdromes) do
+        local _basePoint = _base:getPoint()
+        if _basePoint and WE.getDistance(_point, _basePoint) < WE.IADSBlueBaseMinDistance then
+            return false
+        end
+    end
+    return true
+end
+
+--- Check a candidate network point against the spacing rule for points that
+--- have already been placed (other sites and the radar).
+--- @param _point table candidate point {x, y, z}
+--- @param _placedPoints table list of already placed points
+--- @return boolean true when the point is far enough from every placed point
+function WE.isIADSPointClearOfSites(_point, _placedPoints)
+    for _, _placed in ipairs(_placedPoints) do
+        if WE.getDistance(_point, _placed) < WE.IADSSiteMinDistance then
+            return false
+        end
+    end
+    return true
+end
+
+--- Pick a legal network point in the placement band around the anchor: on
+--- land, flat within WE.IADSMaxSlope, clear of the anchor's runways, clear of
+--- every Blue airdrome, and spaced apart from points already placed.
 --- @param _anchor Airbase anchor airdrome
 --- @param _runwaySegments table|nil runway segments for the anchor
---- @return table|nil site point {x, y, z}
-function WE.pickIADSSitePoint(_anchor, _runwaySegments)
+--- @param _blueAirdromes table list of Blue airdrome objects
+--- @param _placedPoints table list of already placed network points
+--- @return table|nil point {x, y, z}
+function WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _placedPoints)
     local _anchorPoint = _anchor:getPoint()
-    local _point = WE.randomLandPoint(_anchorPoint.x, _anchorPoint.z,
-        WE.IADSPlacementMin, WE.IADSPlacementMax, 10)
-    if not _point then
-        return nil
+    for _ = 1, WE.IADSPlacementAttempts do
+        local _point = WE.randomLandPoint(_anchorPoint.x, _anchorPoint.z,
+            WE.IADSPlacementMin, WE.IADSPlacementMax, 10)
+        if _point then
+            _point.y = land.getHeight({ x = _point.x, y = _point.z })
+            if WE.minDistanceToRunway(_runwaySegments, _point) >= WE.IADSRunwayMinDistance
+                and WE.isPointFlat(_point, 50, WE.IADSMaxSlope)
+                and WE.isIADSPointClearOfBlueBases(_point, _blueAirdromes)
+                and WE.isIADSPointClearOfSites(_point, _placedPoints) then
+                return _point
+            end
+        end
     end
-
-    _point.y = land.getHeight({ x = _point.x, y = _point.z })
-    if WE.minDistanceToRunway(_runwaySegments, _point) < WE.IADSRunwayMinDistance then
-        return nil
-    end
-    if not WE.isPointFlat(_point, 30, WE.IADSMaxSlope) then
-        return nil
-    end
-    return _point
+    return nil
 end
 
 --- Pick a legal land point for the command node near the anchor. The anchor
@@ -5416,20 +5479,63 @@ function WE.spawnIADSGroundGroup(_groupName, _x, _z, _units, _logLabel)
     return _group
 end
 
---- Spawn one SAM site group.
+--- Return the local x/z offset (meters) for one unit inside a site group. The
+--- first unit sits at the site point and the rest form a small ring around it.
+--- @param _index number 1-based unit index within the site
+--- @param _count number total number of units in the site
+--- @return number x offset
+--- @return number z offset
+function WE.getIADSUnitOffset(_index, _count)
+    if _index == 1 or _count <= 1 then
+        return 0, 0
+    end
+
+    local _angle = (2 * math.pi * (_index - 2)) / (_count - 1)
+    local _radius = 35
+    return math.cos(_angle) * _radius, math.sin(_angle) * _radius
+end
+
+--- Spawn one SAM site as a single functional group. All of the site's units
+--- are placed at small local offsets around the site point.
 --- @param _siteIndex number 1-based site index within this spawn
---- @param _samType string DCS unit type
+--- @param _siteDef table SAM site definition {name, units}
 --- @param _point table site point {x, y, z}
 --- @param _spawnId number per-spawn counter used to make names unique
 --- @return Group|nil spawned group
---- @return string|nil tracked unit name
-function WE.spawnIADSSite(_siteIndex, _samType, _point, _spawnId)
+--- @return table|nil tracked unit names for this site
+function WE.spawnIADSSite(_siteIndex, _siteDef, _point, _spawnId)
     local _groupName = string.format("IADS_Site_%d_%d", _spawnId, _siteIndex)
-    local _unitName = string.format("IADS_Site_%d_%d_1", _spawnId, _siteIndex)
+    local _unitNames = {}
+    local _units = {}
+
+    for _unitIndex, _unitType in ipairs(_siteDef.units) do
+        local _unitName = string.format("IADS_Site_%d_%d_%d", _spawnId, _siteIndex, _unitIndex)
+        local _offsetX, _offsetZ = WE.getIADSUnitOffset(_unitIndex, #_siteDef.units)
+        _units[_unitIndex] = WE.buildGroundUnit(_unitName, _unitType,
+            _point.x + _offsetX, _point.z + _offsetZ, math.random(0, 360), WE.IADSSkill)
+        table.insert(_unitNames, _unitName)
+    end
+
+    local _group = WE.spawnIADSGroundGroup(_groupName, _point.x, _point.z, _units,
+        string.format("%s site", tostring(_siteDef.name)))
+    if not _group then
+        return nil, nil
+    end
+    return _group, _unitNames
+end
+
+--- Spawn the independent early-warning radar group.
+--- @param _point table radar point {x, y, z}
+--- @param _spawnId number per-spawn counter used to make names unique
+--- @return Group|nil spawned group
+--- @return string|nil tracked unit name
+function WE.spawnIADSRadar(_point, _spawnId)
+    local _groupName = string.format("IADS_Radar_%d", _spawnId)
+    local _unitName = string.format("IADS_Radar_%d_1", _spawnId)
     local _group = WE.spawnIADSGroundGroup(_groupName, _point.x, _point.z, {
-        [1] = WE.buildGroundUnit(_unitName, _samType, _point.x, _point.z,
+        [1] = WE.buildGroundUnit(_unitName, WE.IADSRadarType, _point.x, _point.z,
             math.random(0, 360), WE.IADSSkill),
-    }, "site")
+    }, "radar")
     if not _group then
         return nil, nil
     end
@@ -5463,8 +5569,15 @@ function WE.countAliveIADSSites(_eventData)
 
     local _alive = 0
     for _, _site in ipairs(_eventData.sites) do
-        local _unit = _site.unitName and Unit.getByName(_site.unitName)
-        if _unit and _unit:isExist() and _unit:getLife() > 0 then
+        local _siteAlive = false
+        for _, _unitName in ipairs(_site.unitNames or {}) do
+            local _unit = Unit.getByName(_unitName)
+            if _unit and _unit:isExist() and _unit:getLife() > 0 then
+                _siteAlive = true
+                break
+            end
+        end
+        if _siteAlive then
             _alive = _alive + 1
         end
     end
@@ -5545,8 +5658,8 @@ function WE.EVENT.IADS()
 
     local _anchor = WE.pickIADSAnchor()
     if not _anchor then
-        trigger.action.outText("IADS event could not start: no red airdrome available on this map!", 10)
-        WE.logError("IADS: no red airdrome anchor - event cancelled")
+        trigger.action.outText("IADS event could not start: no red or neutral airdrome available on this map!", 10)
+        WE.logError("IADS: no legal anchor airdrome - event cancelled")
         return
     end
 
@@ -5563,16 +5676,24 @@ function WE.EVENT.IADS()
 
     local _samTypes = WE.IADSSAMTypes or {}
     if #_samTypes < 1 then
-        trigger.action.outText("IADS event could not start: no SAM types configured!", 10)
+        trigger.action.outText("IADS event could not start: no SAM site types configured!", 10)
         WE.logError("IADS: WE.IADSSAMTypes is empty - event cancelled")
         return
     end
-    local _samType = _samTypes[1]
+    for _, _siteDef in ipairs(_samTypes) do
+        if not _siteDef.units or #_siteDef.units < 1 then
+            trigger.action.outText("IADS event could not start: a SAM site type has no units configured!", 10)
+            WE.logError("IADS: SAM site type '%s' has no units - event cancelled", tostring(_siteDef.name))
+            return
+        end
+    end
 
+    local _blueAirdromes = WE.getAirdromes('blue')
     local _siteCount = math.max(1, WE.IADSSiteCount or 1)
     local _sitePoints = {}
+    local _siteDefs = {}
     for _i = 1, _siteCount do
-        local _point = WE.pickIADSSitePoint(_anchor, _runwaySegments)
+        local _point = WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _sitePoints)
         if not _point then
             trigger.action.outText(string.format(
                 "IADS event could not start: no legal SAM site location near %s!", _areaName), 10)
@@ -5580,6 +5701,15 @@ function WE.EVENT.IADS()
             return
         end
         table.insert(_sitePoints, _point)
+        table.insert(_siteDefs, _samTypes[math.random(1, #_samTypes)])
+    end
+
+    local _radarPoint = WE.pickIADSNetworkPoint(_anchor, _runwaySegments, _blueAirdromes, _sitePoints)
+    if not _radarPoint then
+        trigger.action.outText(string.format(
+            "IADS event could not start: no legal radar location near %s!", _areaName), 10)
+        WE.logError("IADS: no radar location near %s - event cancelled", tostring(_areaName))
+        return
     end
 
     WE.iadsSpawnCounter = WE.iadsSpawnCounter + 1
@@ -5590,21 +5720,33 @@ function WE.EVENT.IADS()
     local _sites = {}
 
     for _i, _point in ipairs(_sitePoints) do
-        local _group, _unitName = WE.spawnIADSSite(_i, _samType, _point, _spawnId)
+        local _siteDef = _siteDefs[_i]
+        local _group, _unitNameList = WE.spawnIADSSite(_i, _siteDef, _point, _spawnId)
         if not _group then
             WE.destroyGroupList(_groups)
             trigger.action.outText("Failed to spawn the IADS SAM site!", 10)
             return
         end
         table.insert(_groups, _group)
-        _unitNames[_unitName] = true
+        for _, _unitName in ipairs(_unitNameList) do
+            _unitNames[_unitName] = true
+        end
         table.insert(_sites, {
-            type = _samType,
+            type = _siteDef.name,
             group = _group,
-            unitName = _unitName,
+            unitNames = _unitNameList,
             point = _point,
         })
     end
+
+    local _radarGroup, _radarUnitName = WE.spawnIADSRadar(_radarPoint, _spawnId)
+    if not _radarGroup then
+        WE.destroyGroupList(_groups)
+        trigger.action.outText("Failed to spawn the IADS radar!", 10)
+        return
+    end
+    table.insert(_groups, _radarGroup)
+    _unitNames[_radarUnitName] = true
 
     local _commandGroup, _commandUnitName = WE.spawnIADSCommandNode(_commandPoint, _spawnId)
     if not _commandGroup then
@@ -5649,7 +5791,7 @@ function WE.EVENT.IADS()
         _areaName, _minutes), 20)
     trigger.action.outSound(WE.IADSSound)
 
-    WE.logInfo("IADS event spawned near %s: %d site(s), 1 command node, %d tracked unit(s)",
+    WE.logInfo("IADS event spawned near %s: %d site(s), 1 radar, 1 command node, %d tracked unit(s)",
         tostring(_areaName), #_sites, WE.countTableEntries(_unitNames))
 end
 
