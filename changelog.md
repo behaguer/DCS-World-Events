@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-10-30
 
 ### Added
+- Automatic event scheduling: `WE.AutoRunEnabled` (default `false`) and
+  `WE.AutoRunIntervalMinutes` (default `30`, clamped to a 10 minute minimum)
+  spawn a random enabled event on an interval while no event is active; disabled
+  keeps the radio-menu-only behaviour and skipped attempts are not logged
 - Shared ground/terrain helpers in `includes/utility.lua` for all events:
   `WE.isPointOnLand`, `WE.isPointFlat`, `WE.randomLandPoint`,
   `WE.randomLandOffsetNear`, `WE.getRunwaySegments`, `WE.minDistanceToRunway`,
