@@ -4,7 +4,7 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A placeholder IADS alert asset exists under the name the spawn function plays.
 - [ ] README and the situation briefing describe the event, its win/loss conditions, and the no-retaliation timeout.

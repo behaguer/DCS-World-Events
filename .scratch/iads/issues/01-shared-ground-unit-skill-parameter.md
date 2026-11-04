@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The ground-unit builder accepts an optional skill level and applies it to the spawned unit.
 - [ ] Omitting the skill keeps the current `Excellent` default at every existing call site.

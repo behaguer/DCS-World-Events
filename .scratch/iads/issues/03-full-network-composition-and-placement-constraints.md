@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Three sites spawn, chosen from the three SAM types with repeats allowed, each as one functional group (Kub radar plus launchers, Buk command plus radar plus launcher, Tor standalone).
 - [ ] One early-warning radar spawns at its own validated point in the placement band.

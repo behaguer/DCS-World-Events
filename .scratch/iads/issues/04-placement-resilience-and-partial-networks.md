@@ -4,7 +4,7 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Each site gets up to eight candidate attempts before it is skipped.
 - [ ] A network with failed sites still spawns at least one site and reports only the sites that placed.

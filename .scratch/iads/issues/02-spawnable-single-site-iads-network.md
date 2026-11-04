@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] IADS appears in Spawn Event after Convoy, is blocked while another event is active, and blocks other events while it runs.
 - [ ] Spawn places a Tor site and a Bunker command node on legal land near a Red airdrome, never a Blue airdrome.
