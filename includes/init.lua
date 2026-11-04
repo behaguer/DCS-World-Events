@@ -8,6 +8,9 @@ function WE.initialize()
     
     -- Initialize event handling system
     WE.initializeEvents()
+
+    -- Initialize automatic event scheduling (no-op when disabled)
+    WE.initializeAutoRun()
     
     WE.logInfo("World Events system initialization complete")
 end

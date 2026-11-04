@@ -24,5 +24,11 @@ WE.EventOrder = {
     "CONVOY",
     "IADS",
 }
+-- Automatic event scheduling. When enabled, a random event from
+-- WE.EnabledEvents spawns every interval, but only while no event is already
+-- active. Intervals below 10 minutes are clamped. Leave disabled to keep
+-- spawning fully manual via the radio menu.
+WE.AutoRunEnabled = false
+WE.AutoRunIntervalMinutes = 30
 
 -----------------[[ END OF config.lua ]]-----------------

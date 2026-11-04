@@ -10,4 +10,5 @@ event_baseattack.lua
 event_stronghold.lua
 event_convoy.lua
 event_iads.lua
+autorun.lua
 init.lua

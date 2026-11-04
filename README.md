@@ -124,7 +124,16 @@ WE.EventOrder = {               -- display order in the "Spawn Event" submenu;
     "CONVOY",
     "IADS",
 }
+
+WE.AutoRunEnabled = false       -- true = spawn a random enabled event on a timer
+WE.AutoRunIntervalMinutes = 30  -- minutes between auto-run attempts
 ```
+
+With `WE.AutoRunEnabled = true`, a random event from `WE.EnabledEvents` spawns
+every `WE.AutoRunIntervalMinutes` minutes, but only while no event is already
+active. The first attempt happens one full interval after mission load, and a
+skipped attempt is not queued or logged. Intervals below 10 minutes are
+clamped. Leave it `false` to keep spawning fully manual from the radio menu.
 
 ```lua
 -- event_vipwing.lua

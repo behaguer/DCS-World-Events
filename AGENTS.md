@@ -42,7 +42,7 @@ Registry order (`includes/_compiler_registry.txt`):
 ```
 _header.lua, types.lua, config.lua, state.lua, utility.lua, radio.lua,
 event.lua, event_vipwing.lua, event_baseattack.lua, event_stronghold.lua,
-event_convoy.lua, event_iads.lua, init.lua
+event_convoy.lua, event_iads.lua, autorun.lua, init.lua
 ```
 
 Order matters: `_header.lua` defines `WE` first; `init.lua` must stay last because it calls
@@ -182,6 +182,7 @@ See `README.md` for full event behavior and `EVENT_DESIGN.md` for the shared hel
 |---|---|
 | Enable/reorder events in the menu | `includes/config.lua` (`EnabledEvents`, `EventOrder`) |
 | Change radio access | `WE.RadioUsers` in `includes/config.lua` |
+| Enable automatic event scheduling | `WE.AutoRunEnabled` / `WE.AutoRunIntervalMinutes` in `includes/config.lua`; logic in `includes/autorun.lua` |
 | Create/change an event | `includes/event_<name>.lua` (+ registry + config) |
 | Add shared spawn/terrain helpers | `includes/utility.lua` |
 | Change menu lifecycle or status report | `includes/event.lua`, `includes/radio.lua` |
